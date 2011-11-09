@@ -34,6 +34,8 @@
 
 #include <linux/inet_diag.h>
 
+#include <rsbac/hooks.h>
+
 static const struct inet_diag_handler **inet_diag_table;
 
 struct inet_diag_entry {
@@ -850,6 +852,11 @@ unlock:
 
 static int inet_diag_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 {
+#ifdef CONFIG_RSBAC_NET
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	int hdrlen = sizeof(struct inet_diag_req);
 
 	if (nlh->nlmsg_type >= INET_DIAG_GETSOCK_MAX ||
@@ -859,6 +866,19 @@ static int inet_diag_rcv_msg(struct sk_buff *skb, struct nlmsghdr *nlh)
 	if (nlh->nlmsg_flags & NLM_F_DUMP) {
 		if (nlmsg_attrlen(nlh, hdrlen)) {
 			struct nlattr *attr;
+
+#ifdef CONFIG_RSBAC_NET
+			rsbac_pr_debug(aef, "calling ADF\n");
+			rsbac_target_id.scd = ST_network;
+			rsbac_attribute_value.dummy = 0;
+			if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+					task_pid(current),
+					T_SCD,
+					rsbac_target_id,
+					A_none,
+					rsbac_attribute_value))
+				return -EPERM;
+#endif
 
 			attr = nlmsg_find_attr(nlh, hdrlen,
 					       INET_DIAG_REQ_BYTECODE);

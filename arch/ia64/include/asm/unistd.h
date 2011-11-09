@@ -322,10 +322,18 @@
 #define __NR_setns			1330
 #define __NR_sendmmsg			1331
 
+#ifdef CONFIG_RSBAC
+#define __NR_rsbac                      1332
+#endif
+
+
 #ifdef __KERNEL__
 
-
+#ifdef CONFIG_RSBAC
+#define NR_syscalls			309
+#else
 #define NR_syscalls			308 /* length of syscall table */
+#endif
 
 /*
  * The following defines stop scripts/checksyscalls.sh from complaining about

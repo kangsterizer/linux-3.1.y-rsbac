@@ -8,6 +8,8 @@
 #include <linux/syscalls.h>
 #include <asm/uaccess.h>
 
+#include <rsbac/hooks.h>
+
 /* init to 2 - one for init_task, one to ensure it is never freed */
 struct group_info init_groups = { .usage = ATOMIC_INIT(2) };
 
@@ -233,6 +235,12 @@ SYSCALL_DEFINE2(setgroups, int, gidsetsize, gid_t __user *, grouplist)
 	struct group_info *group_info;
 	int retval;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+	int i;
+#endif
+
 	if (!nsown_capable(CAP_SETGID))
 		return -EPERM;
 	if ((unsigned)gidsetsize > NGROUPS_MAX)
@@ -246,6 +254,26 @@ SYSCALL_DEFINE2(setgroups, int, gidsetsize, gid_t __user *, grouplist)
 		put_group_info(group_info);
 		return retval;
 	}
+
+#ifdef CONFIG_RSBAC
+	if (gidsetsize > 0) {
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.process = task_pid(current);
+		for (i=0; i < gidsetsize; i++) {
+			rsbac_attribute_value.group = RSBAC_GEN_GID(RSBAC_UM_VIRTUAL_KEEP, group_info->blocks[i / NGROUPS_PER_BLOCK][i]);
+			if(!rsbac_adf_request(R_CHANGE_GROUP,
+						task_pid(current),
+						T_PROCESS,
+						rsbac_target_id,
+						A_group,
+						rsbac_attribute_value))
+			{
+				put_group_info(group_info);
+				return -EPERM;
+			}
+		}
+	}
+#endif
 
 	retval = set_current_groups(group_info);
 	put_group_info(group_info);

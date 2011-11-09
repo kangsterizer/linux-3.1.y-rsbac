@@ -20,6 +20,7 @@
 #include <linux/audit.h>
 #include <asm/uaccess.h>
 
+#include <rsbac/hooks.h>
 
 /*
  * Check permissions for extended attribute access.  This is a bit complicated
@@ -121,6 +122,36 @@ vfs_setxattr(struct dentry *dentry, const char *name, const void *value,
 {
 	struct inode *inode = dentry->d_inode;
 	int error;
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[sys_*setxattr()]: calling ADF\n");
+	rsbac_target = T_FILE;
+	if (S_ISDIR(inode->i_mode))
+		rsbac_target = T_DIR;
+	else if (S_ISFIFO(inode->i_mode))
+		rsbac_target = T_FIFO;
+	else if (S_ISLNK(inode->i_mode))
+		rsbac_target = T_SYMLINK;
+	else if (S_ISSOCK(inode->i_mode))
+		rsbac_target = T_UNIXSOCK;
+	rsbac_target_id.file.device = dentry->d_sb->s_dev;
+	rsbac_target_id.file.inode  = inode->i_ino;
+	rsbac_target_id.file.dentry_p = dentry;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_PERMISSIONS_DATA,
+				task_pid(current),
+				rsbac_target,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		return -EPERM;
+	}
+#endif
 
 	error = xattr_permission(inode, name, MAY_WRITE);
 	if (error)
@@ -172,6 +203,12 @@ vfs_getxattr(struct dentry *dentry, const char *name, void *value, size_t size)
 	struct inode *inode = dentry->d_inode;
 	int error;
 
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	error = xattr_permission(inode, name, MAY_READ);
 	if (error)
 		return error;
@@ -179,6 +216,31 @@ vfs_getxattr(struct dentry *dentry, const char *name, void *value, size_t size)
 	error = security_inode_getxattr(dentry, name);
 	if (error)
 		return error;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[sys_*getxattr()]: calling ADF\n");
+	rsbac_target = T_FILE;
+	if (S_ISDIR(inode->i_mode))
+		rsbac_target = T_DIR;
+	else if (S_ISFIFO(inode->i_mode))
+		rsbac_target = T_FIFO;
+	else if (S_ISLNK(inode->i_mode))
+		rsbac_target = T_SYMLINK;
+	else if (S_ISSOCK(inode->i_mode))
+		rsbac_target = T_UNIXSOCK;
+	rsbac_target_id.file.device = dentry->d_sb->s_dev;
+	rsbac_target_id.file.inode  = inode->i_ino;
+	rsbac_target_id.file.dentry_p = dentry;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_GET_PERMISSIONS_DATA,
+				task_pid(current),
+				rsbac_target,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		return -EPERM;
+	}
+#endif
 
 	if (!strncmp(name, XATTR_SECURITY_PREFIX,
 				XATTR_SECURITY_PREFIX_LEN)) {
@@ -206,10 +268,41 @@ ssize_t
 vfs_listxattr(struct dentry *d, char *list, size_t size)
 {
 	ssize_t error;
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
 
 	error = security_inode_listxattr(d);
 	if (error)
 		return error;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[sys_*listxattr()]: calling ADF\n");
+	rsbac_target = T_FILE;
+	if (S_ISDIR(d->d_inode->i_mode))
+		rsbac_target = T_DIR;
+	else if (S_ISFIFO(d->d_inode->i_mode))
+		rsbac_target = T_FIFO;
+	else if (S_ISLNK(d->d_inode->i_mode))
+		rsbac_target = T_SYMLINK;
+	else if (S_ISSOCK(d->d_inode->i_mode))
+		rsbac_target = T_UNIXSOCK;
+	rsbac_target_id.file.device = d->d_sb->s_dev;
+	rsbac_target_id.file.inode  = d->d_inode->i_ino;
+	rsbac_target_id.file.dentry_p = d;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_GET_PERMISSIONS_DATA,
+				task_pid(current),
+				rsbac_target,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))	{
+		return -EPERM;
+	}
+#endif
+
 	error = -EOPNOTSUPP;
 	if (d->d_inode->i_op->listxattr) {
 		error = d->d_inode->i_op->listxattr(d, list, size);
@@ -228,6 +321,12 @@ vfs_removexattr(struct dentry *dentry, const char *name)
 	struct inode *inode = dentry->d_inode;
 	int error;
 
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (!inode->i_op->removexattr)
 		return -EOPNOTSUPP;
 
@@ -238,6 +337,31 @@ vfs_removexattr(struct dentry *dentry, const char *name)
 	error = security_inode_removexattr(dentry, name);
 	if (error)
 		return error;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[sys_*removexattr()]: calling ADF\n");
+	rsbac_target = T_FILE;
+	if (S_ISDIR(inode->i_mode))
+		rsbac_target = T_DIR;
+	else if (S_ISFIFO(inode->i_mode))
+		rsbac_target = T_FIFO;
+	else if (S_ISLNK(inode->i_mode))
+		rsbac_target = T_SYMLINK;
+	else if (S_ISSOCK(inode->i_mode))
+		rsbac_target = T_UNIXSOCK;
+	rsbac_target_id.file.device = dentry->d_sb->s_dev;
+	rsbac_target_id.file.inode  = inode->i_ino;
+	rsbac_target_id.file.dentry_p = dentry;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_PERMISSIONS_DATA,
+				task_pid(current),
+				rsbac_target,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		return -EPERM;
+	}
+#endif
 
 	mutex_lock(&inode->i_mutex);
 	error = inode->i_op->removexattr(dentry, name);

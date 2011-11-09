@@ -32,6 +32,8 @@ static int ptrace_trapping_sleep_fn(void *flags)
 	return 0;
 }
 
+#include <rsbac/hooks.h>
+
 /*
  * ptrace a task: make the debugger its new parent and
  * move it to the ptrace list.
@@ -336,10 +338,32 @@ static int ptrace_traceme(void)
 {
 	int ret = -EPERM;
 
+#ifdef CONFIG_RSBAC
+        union rsbac_target_id_t rsbac_target_id;
+        union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	write_lock_irq(&tasklist_lock);
 	/* Are we already being traced? */
 	if (!current->ptrace) {
 		ret = security_ptrace_traceme(current->parent);
+
+#ifdef CONFIG_RSBAC
+		if (!ret) {
+			rsbac_pr_debug(aef, "[sys_ptrace] calling ADF\n");
+			rsbac_target_id.process = task_pid(current);
+			rsbac_attribute_value.trace_request = PTRACE_TRACEME;
+			if (!rsbac_adf_request(R_TRACE,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_trace_request,
+					rsbac_attribute_value)) {
+				ret = -EPERM;
+			}
+		}
+#endif
+
 		/*
 		 * Check PF_EXITING to ensure ->real_parent has not passed
 		 * exit_ptrace(). Otherwise we don't report the error but
@@ -869,12 +893,38 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, unsigned long, addr,
 	struct task_struct *child;
 	long ret;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+        union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (request == PTRACE_TRACEME) {
 		ret = ptrace_traceme();
 		if (!ret)
 			arch_ptrace_attach(current);
 		goto out;
 	}
+
+#ifdef CONFIG_RSBAC
+	if (request != PTRACE_DETACH) {
+		rsbac_pr_debug(aef, "[sys_ptrace] calling ADF\n");
+		rcu_read_lock();
+		rsbac_target_id.process = find_pid_ns(pid, &init_pid_ns);
+		rsbac_attribute_value.trace_request = request;
+		if (!rsbac_adf_request(R_TRACE,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_trace_request,
+					rsbac_attribute_value))
+		{
+			ret = -EPERM;
+			rcu_read_unlock();
+			goto out;
+		}
+		rcu_read_unlock();
+	}
+#endif
 
 	child = ptrace_get_task_struct(pid);
 	if (IS_ERR(child)) {

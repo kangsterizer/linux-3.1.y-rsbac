@@ -27,6 +27,7 @@
 #include <asm/pgtable.h>
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
+#include <rsbac/hooks.h>
 
 #ifndef pgprot_modify
 static inline pgprot_t pgprot_modify(pgprot_t oldprot, pgprot_t newprot)
@@ -236,6 +237,14 @@ SYSCALL_DEFINE3(mprotect, unsigned long, start, size_t, len,
 	struct vm_area_struct *vma, *prev;
 	int error = -EINVAL;
 	const int grows = prot & (PROT_GROWSDOWN|PROT_GROWSUP);
+
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target = T_NONE;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+	int need_notify = FALSE;
+#endif
+
 	prot &= ~(PROT_GROWSDOWN|PROT_GROWSUP);
 	if (grows == (PROT_GROWSDOWN|PROT_GROWSUP)) /* can't be both */
 		return -EINVAL;
@@ -304,6 +313,34 @@ SYSCALL_DEFINE3(mprotect, unsigned long, start, size_t, len,
 		if (error)
 			goto out;
 
+#ifdef CONFIG_RSBAC
+		if ((prot & PROT_EXEC) && !(vma->vm_flags & PROT_EXEC)) {
+			rsbac_pr_debug(aef, "calling ADF\n");
+			if (vma->vm_file) {
+		                rsbac_target = T_FILE;
+				rsbac_target_id.file.device = vma->vm_file->f_dentry->d_inode->i_sb->s_dev;
+				rsbac_target_id.file.inode = vma->vm_file->f_dentry->d_inode->i_ino;
+				rsbac_target_id.file.dentry_p = vma->vm_file->f_dentry;
+			} else {
+				rsbac_target = T_NONE;
+				rsbac_target_id.dummy = 0;
+			}
+			rsbac_attribute_value.prot_bits = prot;
+			if (!rsbac_adf_request(R_MAP_EXEC,
+						  task_pid(current),
+						  rsbac_target,
+						  rsbac_target_id,
+						  A_prot_bits,
+						  rsbac_attribute_value))
+			{
+				rsbac_pr_debug(aef, "request NOT_GRANTED\n");
+				error = -EPERM;
+				goto out;
+			} else
+			  need_notify = TRUE;
+		}
+#endif
+
 		tmp = vma->vm_end;
 		if (tmp > end)
 			tmp = end;
@@ -325,5 +362,28 @@ SYSCALL_DEFINE3(mprotect, unsigned long, start, size_t, len,
 	}
 out:
 	up_write(&current->mm->mmap_sem);
+
+        /* RSBAC: notify ADF of mapped segment */
+#ifdef CONFIG_RSBAC
+	if (need_notify && !error) {
+		union rsbac_target_id_t rsbac_new_target_id;
+
+		rsbac_pr_debug(aef, "calling ADF_set_attr\n");
+		rsbac_new_target_id.dummy = 0;
+		if (rsbac_adf_set_attr(R_MAP_EXEC,
+					task_pid(current),
+					rsbac_target,
+					rsbac_target_id,
+					T_NONE,
+					rsbac_new_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			rsbac_printk(KERN_WARNING
+					"sys_mprotect: rsbac_adf_set_attr() returned error\n");
+		}
+	}
+#endif
+
 	return error;
 }

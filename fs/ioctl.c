@@ -18,6 +18,11 @@
 
 #include <asm/ioctls.h>
 
+#ifdef CONFIG_RSBAC_IOCTL
+#include <net/sock.h>
+#endif
+#include <rsbac/hooks.h>
+
 /* So that the fiemap access checks can't overflow on 32 bit machines. */
 #define FIEMAP_MAX_EXTENTS	(UINT_MAX / sizeof(struct fiemap_extent))
 
@@ -37,8 +42,77 @@ static long vfs_ioctl(struct file *filp, unsigned int cmd,
 {
 	int error = -ENOTTY;
 
+#ifdef CONFIG_RSBAC_IOCTL
+	enum  rsbac_target_t rsbac_target;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (!filp->f_op || !filp->f_op->unlocked_ioctl)
 		goto out;
+
+#ifdef CONFIG_RSBAC_IOCTL
+	if (S_ISBLK(filp->f_dentry->d_inode->i_mode)) {
+		rsbac_target = T_DEV;
+		rsbac_target_id.dev.type = D_block;
+		rsbac_target_id.dev.major = RSBAC_MAJOR(filp->f_dentry->d_inode->i_rdev);
+		rsbac_target_id.dev.minor = RSBAC_MINOR(filp->f_dentry->d_inode->i_rdev);
+	}
+	else
+		if (S_ISCHR(filp->f_dentry->d_inode->i_mode)) {
+			rsbac_target = T_DEV;
+			rsbac_target_id.dev.type = D_char;
+			rsbac_target_id.dev.major = RSBAC_MAJOR(filp->f_dentry->d_inode->i_rdev);
+			rsbac_target_id.dev.minor = RSBAC_MINOR(filp->f_dentry->d_inode->i_rdev);
+		}
+		else
+			if (S_ISSOCK(filp->f_dentry->d_inode->i_mode)) {
+				if (   SOCKET_I(filp->f_dentry->d_inode)->ops
+						&& (SOCKET_I(filp->f_dentry->d_inode)->ops->family == AF_UNIX)
+				  ) {
+					if (filp->f_dentry->d_sb->s_magic == SOCKFS_MAGIC) {
+						rsbac_target = T_IPC;
+						rsbac_target_id.ipc.type = I_anonunix;
+						rsbac_target_id.ipc.id.id_nr = filp->f_dentry->d_inode->i_ino;
+					}
+					else {
+						rsbac_target = T_UNIXSOCK;
+						rsbac_target_id.unixsock.device = filp->f_dentry->d_sb->s_dev;
+						rsbac_target_id.unixsock.inode  = filp->f_dentry->d_inode->i_ino;
+						rsbac_target_id.unixsock.dentry_p = filp->f_dentry;
+					}
+				}
+				else {
+#ifdef CONFIG_RSBAC_NET_OBJ
+					rsbac_target = T_NETOBJ;
+					rsbac_target_id.netobj.sock_p
+						= SOCKET_I(filp->f_dentry->d_inode);
+					rsbac_target_id.netobj.local_addr = NULL;
+					rsbac_target_id.netobj.local_len = 0;
+					rsbac_target_id.netobj.remote_addr = NULL;
+					rsbac_target_id.netobj.remote_len = 0;
+#else
+					rsbac_target = T_NONE;
+#endif
+				}
+			}
+			else
+				rsbac_target = T_NONE;
+	if (rsbac_target != T_NONE) {
+		rsbac_pr_debug(aef, "[sys_ioctl()]: calling ADF\n");
+		rsbac_attribute_value.ioctl_cmd = cmd;
+		if (!rsbac_adf_request(R_IOCTL,
+					task_pid(current),
+					rsbac_target,
+					rsbac_target_id,
+					A_ioctl_cmd,
+					rsbac_attribute_value))
+		{
+			error = -EPERM;
+			goto out;
+		}
+	}
+#endif
 
 	error = filp->f_op->unlocked_ioctl(filp, cmd, arg);
 	if (error == -ENOIOCTLCMD)

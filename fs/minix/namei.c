@@ -6,6 +6,8 @@
 
 #include "minix.h"
 
+#include <rsbac/hooks.h>
+
 static int add_nondir(struct dentry *dentry, struct inode *inode)
 {
 	int err = minix_add_link(dentry, inode);
@@ -157,6 +159,11 @@ static int minix_unlink(struct inode * dir, struct dentry *dentry)
 	if (err)
 		goto end_unlink;
 
+#ifdef CONFIG_RSBAC_SECDEL
+	if (inode->i_nlink == 1)
+		rsbac_sec_del(dentry, TRUE);
+#endif
+
 	inode->i_ctime = dir->i_ctime;
 	inode_dec_link_count(inode);
 end_unlink:
@@ -213,6 +220,12 @@ static int minix_rename(struct inode * old_dir, struct dentry *old_dentry,
 		new_de = minix_find_entry(new_dentry, &new_page);
 		if (!new_de)
 			goto out_dir;
+
+#ifdef CONFIG_RSBAC_SECDEL
+		if (new_inode->i_nlink == 1)
+			rsbac_sec_del(new_dentry, TRUE);
+#endif
+
 		minix_set_link(new_de, new_page, old_inode);
 		new_inode->i_ctime = CURRENT_TIME_SEC;
 		if (dir_de)

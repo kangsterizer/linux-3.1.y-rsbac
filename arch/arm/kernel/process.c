@@ -450,6 +450,10 @@ pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {
 	struct pt_regs regs;
 
+#ifdef CONFIG_RSBAC
+	int rsbac_retval;
+#endif
+
 	memset(&regs, 0, sizeof(regs));
 
 	regs.ARM_r4 = (unsigned long)arg;
@@ -459,7 +463,12 @@ pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 	regs.ARM_pc = (unsigned long)kernel_thread_helper;
 	regs.ARM_cpsr = regs.ARM_r7 | PSR_I_BIT;
 
+#ifdef CONFIG_RSBAC
+	rsbac_retval = do_fork(flags | CLONE_VM | CLONE_UNTRACED | CLONE_KTHREAD, 0, &regs, 0, NULL, NULL);
+	return rsbac_retval;
+#else
 	return do_fork(flags|CLONE_VM|CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+#endif
 }
 EXPORT_SYMBOL(kernel_thread);
 

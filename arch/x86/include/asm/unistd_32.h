@@ -228,7 +228,7 @@
 #define __NR_madvise1		219	/* delete when C lib stub is removed */
 #define __NR_getdents64		220
 #define __NR_fcntl64		221
-/* 223 is unused */
+#define __NR_rsbac		223	/* was security */
 #define __NR_gettid		224
 #define __NR_readahead		225
 #define __NR_setxattr		226

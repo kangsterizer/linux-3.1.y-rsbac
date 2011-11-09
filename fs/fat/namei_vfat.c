@@ -21,6 +21,7 @@
 #include <linux/slab.h>
 #include <linux/buffer_head.h>
 #include <linux/namei.h>
+#include <rsbac/hooks.h>
 #include "fat.h"
 
 /*
@@ -858,6 +859,10 @@ static int vfat_unlink(struct inode *dir, struct dentry *dentry)
 	if (err)
 		goto out;
 
+#ifdef CONFIG_RSBAC_SECDEL
+        rsbac_sec_del(dentry, TRUE);
+#endif
+
 	err = fat_remove_entries(dir, &sinfo);	/* and releases bh */
 	if (err)
 		goto out;
@@ -954,6 +959,11 @@ static int vfat_rename(struct inode *old_dir, struct dentry *old_dentry,
 			if (err)
 				goto out;
 		}
+#ifdef CONFIG_RSBAC_SECDEL
+		else
+			if(new_inode->i_nlink == 1)
+				rsbac_sec_del(new_dentry, TRUE);
+#endif
 		new_i_pos = MSDOS_I(new_inode)->i_pos;
 		fat_detach(new_inode);
 	} else {

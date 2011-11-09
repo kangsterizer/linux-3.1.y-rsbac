@@ -1845,7 +1845,11 @@ ENTRY(kernel_thread)
 	mov	a5, a2			# preserve fn over syscall
 	mov	a7, a3			# preserve args over syscall
 
+#ifdef CONFIG_RSBAC
+	movi	a3, _CLONE_VM | _CLONE_UNTRACED | _CLONE_KTHREAD
+#else
 	movi	a3, _CLONE_VM | _CLONE_UNTRACED
+#endif
 	movi	a2, __NR_clone
 	or	a6, a4, a3		# arg0: flags
 	mov	a3, a1			# arg1: sp

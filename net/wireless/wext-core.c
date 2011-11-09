@@ -19,6 +19,8 @@
 #include <net/wext.h>
 #include <net/net_namespace.h>
 
+#include <rsbac/hooks.h>
+
 typedef int (*wext_ioctl_func)(struct net_device *, struct iwreq *,
 			       unsigned int, struct iw_request_info *,
 			       iw_handler);
@@ -947,8 +949,36 @@ static int wext_ioctl_dispatch(struct net *net, struct ifreq *ifr,
 {
 	int ret = wext_permission_check(cmd);
 
+#ifdef CONFIG_RSBAC_NET_DEV
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#ifndef CONFIG_RSBAC_NET_DEV_VIRT
+	char * rsbac_colon;
+#endif
+#endif
+
 	if (ret)
 		return ret;
+
+#ifdef CONFIG_RSBAC_NET_DEV
+	rsbac_pr_debug(aef, " calling ADF\n");
+	strncpy(rsbac_target_id.netdev, ifr->ifr_name, RSBAC_IFNAMSIZ);
+	rsbac_target_id.netdev[RSBAC_IFNAMSIZ] = 0;
+#ifndef CONFIG_RSBAC_NET_DEV_VIRT
+	rsbac_colon = strchr(rsbac_target_id.netdev, ':');
+	if (rsbac_colon)
+		*rsbac_colon = 0;
+#endif
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_NETDEV,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+		return -EPERM;
+#endif
 
 	dev_load(net, ifr->ifr_name);
 	rtnl_lock();

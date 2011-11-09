@@ -78,6 +78,8 @@
 #include <linux/miscdevice.h>
 #include <asm/uaccess.h>
 
+#include <rsbac/hooks.h>
+
 static DEFINE_IDR(loop_index_idr);
 static DEFINE_MUTEX(loop_index_mutex);
 
@@ -818,6 +820,12 @@ static int loop_set_fd(struct loop_device *lo, fmode_t mode,
 	int		error;
 	loff_t		size;
 
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	/* This is safe, since we have a reference from open(). */
 	__module_get(THIS_MODULE);
 
@@ -878,6 +886,46 @@ static int loop_set_fd(struct loop_device *lo, fmode_t mode,
 
 	if (!(mode & FMODE_WRITE))
 		lo_flags |= LO_FLAGS_READ_ONLY;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[lo_ioctl()]: calling ADF for FILE/DEV\n");
+	if (S_ISREG(inode->i_mode)) {
+		rsbac_target = T_FILE;
+		rsbac_target_id.dir.device = file->f_dentry->d_sb->s_dev;
+		rsbac_target_id.dir.inode  = inode->i_ino;
+		rsbac_target_id.dir.dentry_p = file->f_dentry;
+	}
+	else { /* must be block */
+		rsbac_target = T_DEV;
+		rsbac_target_id.dev.type = D_block;
+		rsbac_target_id.dev.major = RSBAC_MAJOR(inode->i_rdev);
+		rsbac_target_id.dev.minor = RSBAC_MINOR(inode->i_rdev);
+	}
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MOUNT,
+				task_pid(current),
+				rsbac_target,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		error = -EPERM;
+		goto out_putf;
+	}
+	rsbac_pr_debug(aef, "[lo_ioctl()]: calling ADF for DEV\n");
+	rsbac_target_id.dev.type = D_block;
+	rsbac_target_id.dev.major = RSBAC_MAJOR(bdev->bd_dev);
+	rsbac_target_id.dev.minor = RSBAC_MINOR(bdev->bd_dev);
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MOUNT,
+				task_pid(current),
+				T_DEV,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		error = -EPERM;
+		goto out_putf;
+	}
+#endif
 
 	set_device_ro(bdev, (lo_flags & LO_FLAGS_READ_ONLY) != 0);
 
@@ -985,6 +1033,12 @@ static int loop_clr_fd(struct loop_device *lo, struct block_device *bdev)
 	struct file *filp = lo->lo_backing_file;
 	gfp_t gfp = lo->old_gfp_mask;
 
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (lo->lo_state != Lo_bound)
 		return -ENXIO;
 
@@ -993,6 +1047,44 @@ static int loop_clr_fd(struct loop_device *lo, struct block_device *bdev)
 
 	if (filp == NULL)
 		return -EINVAL;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[lo_ioctl()]: calling ADF for FILE/DEV\n");
+	if (S_ISREG(filp->f_dentry->d_inode->i_mode)) {
+		rsbac_target = T_FILE;
+		rsbac_target_id.dir.device = filp->f_dentry->d_sb->s_dev;
+		rsbac_target_id.dir.inode  = filp->f_dentry->d_inode->i_ino;
+		rsbac_target_id.dir.dentry_p = filp->f_dentry;
+	}
+	else { /* must be block dev */
+		rsbac_target = T_DEV;
+		rsbac_target_id.dev.type = D_block;
+		rsbac_target_id.dev.major = RSBAC_MAJOR(filp->f_dentry->d_inode->i_rdev);
+		rsbac_target_id.dev.minor = RSBAC_MINOR(filp->f_dentry->d_inode->i_rdev);
+	}
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_UMOUNT,
+				task_pid(current),
+				rsbac_target,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		return -EPERM;
+	}
+	rsbac_pr_debug(aef, "[lo_ioctl()]: calling ADF for DEV\n");
+	rsbac_target_id.dev.type = D_block;
+	rsbac_target_id.dev.major = LOOP_MAJOR;
+	rsbac_target_id.dev.minor = lo->lo_number;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_UMOUNT,
+				task_pid(current),
+				T_DEV,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		return -EPERM;
+	}
+#endif
 
 	spin_lock_irq(&lo->lo_lock);
 	lo->lo_state = Lo_rundown;

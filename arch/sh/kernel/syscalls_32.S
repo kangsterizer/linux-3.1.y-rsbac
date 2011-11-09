@@ -239,7 +239,11 @@ ENTRY(sys_call_table)
 	.long sys_getdents64	/* 220 */
 	.long sys_fcntl64
 	.long sys_ni_syscall	/* reserved for TUX */
+#ifdef CONFIG_RSBAC
+        .long sys_rsbac
+#else
 	.long sys_ni_syscall	/* Reserved for Security */
+#endif
 	.long sys_gettid
 	.long sys_readahead	/* 225 */
 	.long sys_setxattr

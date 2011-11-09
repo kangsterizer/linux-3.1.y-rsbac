@@ -303,7 +303,11 @@ sys_call_table:
 	PTR	sys_ni_syscall			/* res. for getpmsg */
 	PTR	sys_ni_syscall			/* 5175  for putpmsg */
 	PTR	sys_ni_syscall			/* res. for afs_syscall */
+#ifdef CONFIG_RSBAC
+	PTR	sys_rsbac			/* Security */
+#else
 	PTR	sys_ni_syscall			/* res. for security */
+#endif
 	PTR	sys_gettid
 	PTR	sys_readahead
 	PTR	sys_setxattr			/* 5180 */

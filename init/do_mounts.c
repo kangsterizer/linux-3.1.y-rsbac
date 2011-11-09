@@ -23,6 +23,14 @@
 
 #include "do_mounts.h"
 
+#ifdef CONFIG_RSBAC
+#include <rsbac/aci.h>
+#include <rsbac/debug.h>
+#ifdef CONFIG_BLK_DEV_INITRD
+#include <linux/initrd.h>
+#endif
+#endif
+
 int __initdata rd_doload;	/* 1 = load RAM disk, 0 = don't load */
 
 int root_mountflags = MS_RDONLY | MS_SILENT;
@@ -517,4 +525,12 @@ out:
 	devtmpfs_mount("dev");
 	sys_mount(".", "/", NULL, MS_MOVE, NULL);
 	sys_chroot((const char __user __force *)".");
+
+#ifdef CONFIG_RSBAC
+#ifdef CONFIG_RSBAC_INIT_DELAY
+        if(rsbac_no_delay_init)
+#endif
+        rsbac_init(ROOT_DEV);
+#endif
+
 }

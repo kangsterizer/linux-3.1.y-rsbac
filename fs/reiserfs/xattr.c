@@ -951,6 +951,10 @@ static const struct dentry_operations xattr_lookup_poison_ops = {
 	.d_revalidate = xattr_hide_revalidate,
 };
 
+#ifdef CONFIG_RSBAC
+struct dentry * rsbac_lookup_one_len(const char * name, struct dentry * base, int len);
+#endif
+
 int reiserfs_lookup_privroot(struct super_block *s)
 {
 	struct dentry *dentry;
@@ -995,8 +999,13 @@ int reiserfs_xattr_init(struct super_block *s, int mount_flags)
 		reiserfs_mutex_lock_safe(&privroot->d_inode->i_mutex, s);
 		if (!REISERFS_SB(s)->xattr_root) {
 			struct dentry *dentry;
+#ifdef CONFIG_RSBAC
+			dentry = rsbac_lookup_one_len(XAROOT_NAME, s->s_root,
+						strlen(XAROOT_NAME));
+#else
 			dentry = lookup_one_len(XAROOT_NAME, privroot,
 						strlen(XAROOT_NAME));
+#endif
 			if (!IS_ERR(dentry))
 				REISERFS_SB(s)->xattr_root = dentry;
 			else

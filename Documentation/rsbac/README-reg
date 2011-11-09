@@ -1,0 +1,37 @@
+RSBAC README for the REG facility.
+----------------------------------
+
+Also see: <http://rsbac.org/documentation/write_your_decision_module>
+
+If enabled in the kernel configuration, RSBAC REG allows the registration
+and unregistration of additional decision modules at runtime, usually from
+a kernel module.
+
+These modules register with a name and a chosen magic handle, which can be
+used for switching on/off and for unregistration.
+
+By registration, a request (the decision itself), a set_attr (called after 
+successful syscall completion) and a need_overwrite (called to determine,
+whether a file needs to be securely deleted/truncated) function can be
+installed.
+
+Apart from these decision functions some support routines can be registered.
+Currently these are write (signal asynchronous attribute writing to disk,
+called regularly by rsbacd), mount and umount (a device has been (u)mounted).
+
+However, each of these function pointers can be set to NULL, if
+no call of this type is wanted.
+
+All functions are *additional* to the existing functions from builtin
+modules, e.g. MAC or RC. This way, they can only further restrict access,
+but not grant anything denied by other models.
+
+Also, you can now register system calls and generic lists.
+
+For examples of builtin real decision modules and their functions see
+subdirs below rsbac/adf/.
+
+Working example modules with simple call counters and a proc pseudo file
+for counter display can be found in the examples/reg/ directory of the
+rsbac-admin tools. These are basically the same modules that are built if
+you enabled building of sample modules in kernel config.

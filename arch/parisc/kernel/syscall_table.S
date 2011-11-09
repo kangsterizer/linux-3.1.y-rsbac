@@ -407,6 +407,9 @@
 	ENTRY_SAME(timerfd_create)
 	ENTRY_COMP(timerfd_settime)
 	ENTRY_COMP(timerfd_gettime)
+#ifdef CONFIG_RSBAC
+	ENTRY_SAME(rsbac)
+#endif
 	ENTRY_COMP(signalfd4)
 	ENTRY_SAME(eventfd2)		/* 310 */
 	ENTRY_SAME(epoll_create1)

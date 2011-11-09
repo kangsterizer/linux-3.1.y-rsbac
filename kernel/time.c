@@ -41,6 +41,8 @@
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
 
+#include <rsbac/hooks.h>
+
 #include "timeconst.h"
 
 /*
@@ -83,8 +85,28 @@ SYSCALL_DEFINE1(stime, time_t __user *, tptr)
 	struct timespec tv;
 	int err;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (get_user(tv.tv_sec, tptr))
 		return -EFAULT;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.scd = ST_clock;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	tv.tv_nsec = 0;
 
@@ -155,12 +177,32 @@ int do_sys_settimeofday(const struct timespec *tv, const struct timezone *tz)
 	static int firsttime = 1;
 	int error = 0;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (tv && !timespec_valid(tv))
 		return -EINVAL;
 
 	error = security_settime(tv, tz);
 	if (error)
 		return error;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[sys_settimeofday()]: calling ADF\n");
+	rsbac_target_id.scd = ST_clock;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	if (tz) {
 		/* SMP safe, global irq locking makes it work. */

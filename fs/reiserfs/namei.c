@@ -18,6 +18,7 @@
 #include <linux/reiserfs_acl.h>
 #include <linux/reiserfs_xattr.h>
 #include <linux/quotaops.h>
+#include <rsbac/hooks.h>
 
 #define INC_DIR_INODE_NLINK(i) if (i->i_nlink != 1) { inc_nlink(i); if (i->i_nlink >= REISERFS_LINK_MAX) i->i_nlink=1; }
 #define DEC_DIR_INODE_NLINK(i) if (i->i_nlink != 1) drop_nlink(i);
@@ -975,6 +976,11 @@ static int reiserfs_unlink(struct inode *dir, struct dentry *dentry)
 	 */
 	savelink = inode->i_nlink;
 
+#ifdef CONFIG_RSBAC_SECDEL
+	if (inode->i_nlink == 1)
+		rsbac_sec_del(dentry, TRUE);
+#endif
+
 	retval =
 	    reiserfs_cut_from_item(&th, &path, &(de.de_entry_key), dir, NULL,
 				   0);
@@ -1357,6 +1363,11 @@ static int reiserfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			journal_end(&th, old_dir->i_sb, jbegin_count);
 			reiserfs_write_unlock(old_dir->i_sb);
 			return -EIO;
+#ifdef CONFIG_RSBAC_SECDEL
+		} else {
+			if (new_dentry_inode && (new_dentry_inode->i_nlink == 1))
+				rsbac_sec_del(new_dentry, TRUE);
+#endif
 		}
 
 		copy_item_head(&new_entry_ih, get_ih(&new_entry_path));

@@ -9,6 +9,7 @@
 #include <linux/module.h>
 #include <linux/time.h>
 #include <linux/buffer_head.h>
+#include <rsbac/hooks.h>
 #include "fat.h"
 
 /* Characters that are undesirable in an MS-DOS file name */
@@ -423,6 +424,9 @@ static int msdos_unlink(struct inode *dir, struct dentry *dentry)
 	clear_nlink(inode);
 	inode->i_ctime = CURRENT_TIME_SEC;
 	fat_detach(inode);
+#ifdef CONFIG_RSBAC_SECDEL
+        rsbac_sec_del(dentry, TRUE);
+#endif
 out:
 	unlock_super(sb);
 	if (!err)
@@ -515,6 +519,11 @@ static int do_msdos_rename(struct inode *old_dir, unsigned char *old_name,
 		new_i_pos = sinfo.i_pos;
 	}
 	new_dir->i_version++;
+
+#ifdef CONFIG_RSBAC_SECDEL
+        if (new_inode && (new_inode->i_nlink == 1))
+		rsbac_sec_del(new_dentry, TRUE);
+#endif
 
 	fat_detach(old_inode);
 	fat_attach(old_inode, new_i_pos);

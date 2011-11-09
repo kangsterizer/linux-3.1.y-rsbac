@@ -1,0 +1,49 @@
+RSBAC README
+------------
+
+Documentation in this section is here for information only.
+
+The full RSBAC documentation is available online, at:
+<http://www.rsbac.org/documentation>
+
+New RSBAC versions as well as support for other kernel versions and bugfixes
+can be downloaded from: <http://www.rsbac.org>
+
+For installation instructions read INSTALL.
+
+Files description:
+------------------
+
+README-kernparam:
+Describes the various kernel parameters that can be used with RSBAC.
+
+README-proc:
+Describes the proc interface to RSBAC.
+
+Information about the registration of additional RSBAC decision modules
+(option CONFIG_RSBAC_REG) can be found in README-reg and html/reg.htm.
+
+(Quite old) man pages for many RSBAC syscalls are in the man directory.
+Russian versions can be found in man-rus.
+
+README-nrlists:
+For large systems (very many files per partition) you might consider
+increasing RSBAC_NR_FD_LISTS in include/rsbac/aci_data_structures.h before
+compiling. Please read README-nrlists first.
+There is also now a kernel configuration option.
+
+README-patching:
+If you patched against another kernel version than stated in the patch
+filename, it is important to work through README-patching.
+
+README-reg:
+Information about the registration of additional RSBAC decision modules
+(option CONFIG_RSBAC_REG) can be found in README-reg.
+
+
+If you run into problems or have questions, please write to the RSBAC
+mailing list at rsbac@rsbac.org (commands like 'subscribe rsbac' as single
+line in the message body to majordomo@rsbac.org), or see:
+<http://www.rsbac.org/contact>
+
+The RSBAC team.

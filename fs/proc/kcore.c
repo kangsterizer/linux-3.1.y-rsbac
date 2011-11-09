@@ -27,6 +27,8 @@
 #include <linux/memory.h>
 #include <asm/sections.h>
 
+#include <rsbac/hooks.h>
+
 #define CORE_STR "CORE"
 
 #ifndef ELF_CORE_EFLAGS
@@ -542,8 +544,27 @@ read_kcore(struct file *file, char __user *buffer, size_t buflen, loff_t *fpos)
 
 static int open_kcore(struct inode *inode, struct file *filp)
 {
+#ifdef CONFIG_RSBAC
+        union rsbac_target_id_t rsbac_target_id;
+        union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (!capable(CAP_SYS_RAWIO))
 		return -EPERM;
+
+#ifdef CONFIG_RSBAC
+        rsbac_target_id.scd = ST_kmem;
+        rsbac_attribute_value.dummy = 0;
+        rsbac_pr_debug(aef, "calling ADF\n");
+        if (!rsbac_adf_request(R_GET_STATUS_DATA,
+                              task_pid(current),
+                              T_SCD,
+                              rsbac_target_id,
+                              A_none,
+                              rsbac_attribute_value))
+          return -EPERM;
+#endif
+
 	if (kcore_need_update)
 		kcore_update_ram();
 	if (i_size_read(inode) != proc_root_kcore->size) {

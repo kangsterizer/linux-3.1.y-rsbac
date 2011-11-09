@@ -18,6 +18,8 @@
 
 #include "tick-internal.h"
 
+#include <rsbac/hooks.h>
+
 /*
  * NTP timekeeping variables:
  */
@@ -622,6 +624,11 @@ int do_adjtimex(struct timex *txc)
 	struct timespec ts;
 	int result;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	/* Validate the data before disabling interrupts */
 	if (txc->modes & ADJ_ADJTIME) {
 		/* singleshot must not be used with any other mode bits */
@@ -634,6 +641,19 @@ int do_adjtimex(struct timex *txc)
 		/* In order to modify anything, you gotta be super-user! */
 		 if (txc->modes && !capable(CAP_SYS_TIME))
 			return -EPERM;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.scd = ST_time_strucs;
+	rsbac_attribute_value.dummy = 0;
+	if (txc->modes && !rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+		return -EPERM;
+#endif
 
 		/*
 		 * if the quartz is off by more than 10% then

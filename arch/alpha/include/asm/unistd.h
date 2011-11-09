@@ -332,7 +332,11 @@
 #define __NR_getdents64			377
 #define __NR_gettid			378
 #define __NR_readahead			379
+#ifdef CONFIG_RSBAC
+#define __NR_rsbac                      380
+#else
 /* 380 is unused */
+#endif
 #define __NR_tkill			381
 #define __NR_setxattr			382
 #define __NR_lsetxattr			383

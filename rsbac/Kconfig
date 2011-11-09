@@ -1,0 +1,2342 @@
+#
+# RSBAC configuration
+# (c) 1999-2010 Amon Ott <ao@rsbac.org>
+#
+
+menuconfig RSBAC
+	bool "Rule Set Based Access Control (RSBAC)"
+	default y
+	---help---
+	  RSBAC adds 'real' access control to the kernel. Currently there are
+	  the following policies supported: Mandatory Access Control,
+	  Functional Control, Privacy Model, Dazuko, File Flags,
+	  Role Compatibility, Authentication Enforcement, User Management,
+	  Access Control Lists, System Resources, Linux Capabilities and Jail.
+
+	  Additionally, you can add your own policies, e.g. as a kernel module
+	  (see Module Registration (REG)).
+
+	  Since RSBAC exclusively uses the virtual file system, files on all
+	  mounted filesystems are monitored. Still, on some filesystems, no
+	  access control information is stored, it is instead kept in kernel
+	  memory. These file system types are currently PROC, NFS, CODAFS, SMBFS
+	  NCPFS, ISO9660 and (configurable below) all MSDOS types (inodes may
+	  change between boots). You can make attribute backups and restore them
+	  on each boot to keep them persistent.
+
+	  RSBAC will increase your kernel size by up to 520K with all options
+	  turned on, plus allocated memory for dynamical data structures.
+	  If you are tight on memory, it is generally a good idea to turn off
+	  those features which you do not need.
+
+	  Please read the RSBAC docs in Documentation/rsbac or
+	  http://www.rsbac.org/documentation before installing a RSBAC enabled
+	  kernel, since you can easily make your system unaccessible when
+	  changing the RSBAC configuration...
+
+if RSBAC
+
+menu "General RSBAC options"
+	depends on RSBAC=y
+
+config RSBAC_INIT_THREAD
+	bool 'Initialize RSBAC in separate kernel thread'
+	---help---
+	  Some people experienced system hangs, oopses etc. during RSBAC
+	  initialization. If you experience this, enabling this option might
+	  help.
+
+	  At least, init can be timed out and the system more or less comes up -
+	  if you are in softmode or maintenance mode, that is. The timeout value
+	  is indicated by the RSBAC_MAX_INIT_TIME configure option below.
+
+config RSBAC_MAX_INIT_TIME
+	int 'Initialization timeout in seconds'
+	default 60
+	depends on RSBAC_INIT_THREAD=y
+	---help---
+	  Maximum time in seconds the init process waits for rsbac_initd to
+	  complete the RSBAC initialization process via rsbac_do_init(). After
+	  this time, RSBAC initialization is considered as failed and
+	  rsbac_initd is killed.
+
+config RSBAC_PROC
+	bool 'RSBAC proc support'
+	depends on PROC_FS
+	default y
+	---help---
+	  If enabled, RSBAC adds one directory to the main proc dir, called
+	  rsbac-info.
+	  The files in rsbac-info give read access to RSBAC statistics, and
+	  read and write access to many RSBAC settings.
+
+	  If unsure, say Y.
+
+	  See <file:Documentation/rsbac/README-proc> for details.
+
+config RSBAC_INIT_CHECK
+	bool 'Check on init'
+	default y
+	---help---
+	  Check RSBAC attribute consistency at boot time.
+
+	  NOTE: This cannot check attributes on other than the root filesystem.
+	        You should run rsbac_check regularly, e.g. once per day from
+	        cron.
+
+config RSBAC_NO_WRITE
+	bool 'Disable RSBAC writing to disk'
+	---help---
+	  If enabled, RSBAC treats all file system types as read-only. No
+	  attributes are saved and all settings are instead kept in memory.
+	  If off, only PROC, NFS, CODAFS, SMBFS, NCPFS, ISO9660 and all MSDOS
+	  filesystems are read-only.
+
+	  If you only want to turn off automatical writing, but keep the
+	  syscall sys_rsbac_write() to write by hand, set auto write to 0
+	  instead.
+
+	  This switch is intended for testing purposes only and off by
+	  default.
+
+	  If unsure, say N.
+
+config RSBAC_MSDOS_WRITE
+	bool 'Allow attribute writing on MSDOS filesystems'
+	depends on RSBAC_NO_WRITE=n
+	---help---
+	  This setting allows attribute writing on MSDOS filesystems, like FAT,
+	  VFAT, UMSDOS. Turning it on makes these attributes persistent through
+	  reboots.
+	  Unfortunately, MSDOS filesystems do not guarantee reproducable inode
+	  numbers on reboots - so attributes might be applied to wrong files or
+	  get lost. Watch for warning messages from rsbac_check.
+
+	  As a more reliable alternative, disable this feature, and make regular
+	  attribute backups, which you can restore each time after mounting
+	  the disk.
+
+	  If unsure, say N.
+
+config RSBAC_AUTO_WRITE
+	int 'RSBAC auto write to disk interval in seconds'
+	default 5
+	depends on RSBAC_NO_WRITE=n
+	---help---
+	  If not 0, a kernel daemon saves all changed RSBAC attributes to disk
+	  every n seconds. You can also initiate each saving through the
+	  sys_rsbac_write() syscall. This interval can alternatively be changed
+	  via the proc interface.
+
+config RSBAC_RCU_RATE
+	int 'RSBAC attribute change burst per second'
+	default 1000
+	---help---
+	  Normally, RSBAC removes list items in the background while the
+	  process continues without delay. Keeping the items longer needs
+	  extra memory, so a rate limit ensures that memory does not get
+	  exhausted.
+
+	  When the limit has been reached, deleting items is still
+	  possible, but the process gets delayed until all possible
+	  readers of the deleted item have finished reading and the item
+	  is deleted immediately. This slows down attribute changes
+	  somewhat, but should only be noticable on mass changes like at
+	  a restore.
+
+	  The default value of 1000 should be fine for normal system use
+	  even with FD cache. Valid values are 100 to 100000.
+	  The value can later be changed at boot time with
+	  rsbac_list_rcu_rate=n kernel parameter and at runtime through
+	  /proc/rsbac-info/debug.
+
+config RSBAC_LIST_MAX_HASHES
+	int 'Maximum number of list hashes'
+	default 128
+	---help---
+	  IMPORTANT: Use values of 2^n, like 64, 128, 512. If you do not,
+	  the value will be automatically reduced to the next lower 2^n.
+	  (e.g.: 127 would be converted to list hashes of size 64.)
+
+	  Define the maximum number of internal hashes per generic list.
+	  Bigger values may need more memory, but allow to distribute many
+          list items over more and thus smaller lists behind the hashes.
+	  It is safe to change this value at any time, but it may not
+	  go below 8 or above 2048. The system will not use more hashes
+	  per list than necessary. Default is 128.
+
+config RSBAC_LIST_CHECK_INTERVAL
+	int 'Interval of automatic list check and cleanup'
+	default 1800
+	depends on CONFIG_RSBAC_AUTO_WRITE!=0
+	---help---
+	  Check all lists and remove items over ttl at this interval.
+	  Uses rsbacd and thus uses CONFIG_RSBAC_AUTO_WRITE granularity.
+
+	  Default is 1800, one half hour.
+
+config RSBAC_LIST_STATS
+	bool 'List access statistics'
+	default n
+	---help---
+	  Count read and write accesses to each list for optimization.
+	  The values are shown in /proc/rsbac-info/gen_list_counts.
+
+config RSBAC_LIST_TRANS
+	bool 'Support transactions'
+	default y
+	---help---
+	  This option enables support for RSBAC configuration transactions.
+	  RSBAC transactions are a set of temporary changes within a list that
+	  are either commited or forgotten.
+
+	  Any user can start a transaction with the rsbac_list_ta() syscall
+	  (e.g. via the rsbac_list_ta admin tool), and use the returned
+	  transaction number for further administration calls which collect a
+	  set of allowed changes.
+
+	  When finished, a simple commit through rsbac_list_ta applies all these
+	  changes atomically to the system, while the forget command or a
+	  transaction timeout (see next option) remove the complete set of
+	  proposes changes.
+
+	  The number of transactions in parallel is not limited, but each list,
+	  which has been changed by one transaction, is locked against changes
+	  by all other transactions. Such change attempts return the error
+	  -RSBAC_EBUSY, while using invalid transaction numbers returns the
+	  error -RSBAC_EINVALIDTRANSACTION. This means that when using
+	  transactions, both error codes should be checked for each call. When
+	  a list is BUSY, it is the user's choice to retry later, forget all
+	  changes or leave it as it is.
+
+	  Changes with transaction number 0 (no transaction) and automatic
+	  changes by the system always affect both the real lists and all
+	  transaction lists.
+
+config RSBAC_LIST_TRANS_MAX_TTL
+	int 'Maximum transaction time in seconds'
+	default 3600
+	depends on RSBAC_LIST_TRANS
+	---help---
+	  When starting a transaction, the ttl parameter sets its maximum
+	  lifetime, after which it will be automatically removed, if
+	  it has not been renewed in time.
+	  This option sets the maximum allowed lifetime for any transaction in
+	  seconds. The default value is 3600 (one hour).
+
+config RSBAC_LIST_TRANS_RANDOM_TA
+	bool 'Randomize transaction numbers'
+	default y
+	depends on RSBAC_LIST_TRANS
+	---help---
+	  Usually, transaction numbers start with one and increase with every
+	  new transaction. With this option, they will be randomized to make
+	  it a bit more difficult to tamper with other admins' transactions.
+
+	  However, this is no real protection and makes transactions less human
+	  friendly because of large numbers - use the transaction key or the
+	  user limit to get more security for transaction handling.
+
+config RSBAC_FD_CACHE
+	bool 'Cache FD attribute values'
+	default n
+	---help---
+	  This option allows to cache inherited attribute values for some
+	  modules. It speeds up attribute lookup, but increases memory
+	  usage significantly.
+
+config RSBAC_FD_CACHE_TTL
+	int 'Time to live for FD cache items'
+	default 1800
+	depends on RSBAC_FD_CACHE
+	---help---
+	  After the time given here in seconds, FD cache items will be
+	  removed at the next list cleanup. You can change the value at
+	  boottime with kernel parameter rsbac_fd_cache_ttl= and at
+	  runtime through /proc/rsbac-info/debug interface.
+	  Please also adjust CONFIG_RSBAC_LIST_CHECK_INTERVAL
+	  accordingly to get items over ttl expunged timely.
+
+	  Default is 1800, one half hour.
+
+config RSBAC_FD_CACHE_MAX_ITEMS
+	int 'Maximum number of FD cache items per hash'
+	default 1000
+	depends on RSBAC_FD_CACHE
+	---help---
+	  Specify the maximum number of cache FD items allowed per
+	  hashed list. Multiply by max number of hashes per list to get
+	  total maximum number of cache entries.
+
+	  Default is 1000.
+
+config RSBAC_DEBUG
+	bool 'RSBAC debugging support'
+	default y
+	---help---
+	  This option enables many debugging switches to examine RSBAC internals
+	  as well as request sanity checks.
+	  Most of the debugging switches can be set with rsbac_debug_* kernel
+	  parameters or via proc interface at /proc/rsbac-info/debug.
+	  See <file:Documentation/rsbac/README-proc> for details.
+
+	  This option is recommended to be on, but you may as well turn it off,
+	  if performance really matters and your RSBAC system runs without
+	  problems.
+
+	  If unsure, say Y.
+
+config RSBAC_DEV_USER_BACKUP
+	bool 'Provide DEV and USER backup files'
+	depends on RSBAC_PROC=y
+	---help---
+	  If enabled, you will find images of the USER and DEV target general
+	  attribute list files in /proc/rsbac-info/backup. Since attribute
+	  backup should be done with tools, this is usually not needed and
+	  thus off by default.
+
+	  If unsure, say N.
+
+config RSBAC_SECOFF_UID
+	int 'RSBAC default security officer user ID'
+	default 400
+	---help---
+	  The number n given here specifies which user IDs should be used for
+	  the Security Officer/Role Admin/Supervisor (n), the PM model Data
+	  Protection Officer (n+1) and the PM model TP Manager (n+2) in the
+	  default configuration at first boot.
+
+	  WARNING: This value should only be changed if you have a severe
+	           conflict with the default values of 400 to 402. After the
+		   first boot, the defaults are set and saved, and changes to
+		   this option will not have any effect.
+
+config RSBAC_INIT_DELAY
+	bool 'Delayed init for initial ramdisk'
+	---help---
+	  This option allows to delay RSBAC initialization until the first mount
+	  of a real disk partition (major number > 1). It is intended to be used
+	  with initial ramdisks, which mount the final root partition during
+	  boot.
+
+	  You can trigger initialization at a specific partition mount with the
+	  kernel parameter rsbac_delayed_root=major:minor. If the given
+	  partition is not mounted and thus RSBAC not initialized, you can also
+	  call the rsbac_init() system call at any time, e.g. with the
+	  rsbac_init utility.
+
+	  To disable delayed init, you have to use the kernel parameter
+	  rsbac_no_delay_init. This will force the standard initialization after
+	  the first root mount. If this is your initrd, the RSBAC setup in there
+	  will be used instead of the configuration on your real root device.
+
+	  WARNING: The delayed init option requires the RSBAC init code to be
+	           kept in memory all the time, which increases your kernel
+	           memory usage by a few 10s of KB. It should only be used in
+	           combination with an initial ramdisk.
+
+config RSBAC_GEN_NR_P_LISTS
+	int 'Number of GEN process lists'
+	default 4
+	---help---
+	  When using network support, every process in the system accepting a
+	  network connection and all its sub-processes will get individual
+	  attributes set. This means that with many active processes, the list
+	  lookups will become slower.
+
+	  To speed them up, RSBAC uses a hash table to split the GENeral process
+	  attribute lists into several shorter ones. This option sets the number
+	  of these lists.
+
+	  In most cases, the default of 4 will be sufficient. However, if you
+	  plan to have very many processes, a higher value will reduce lookup
+	  time at the cost of additional list headers.
+endmenu
+
+menuconfig RSBAC_UM
+	depends on RSBAC=y
+	bool 'User Management'
+	---help---
+	  Enable RSBAC User Management, a fully passwd/shadow compatible, but
+	  kernel based Linux user and group database. All changes are access
+	  controlled with USER and GROUP targets.
+
+	  You will need the PAM and NSS modules from the RSBAC admin tools
+	  contrib section to make transparent use of this feature.
+
+	  If the SHA1 algorithm is available through the crypto API, passwords
+	  can also optionally be encrypted (next option).
+
+if RSBAC_UM
+config RSBAC_UM_DIGEST
+	bool 'Use Crypto API Digest SHA1'
+	depends on RSBAC_UM=y
+	select CRYPTO
+	select CRYPTO_SHA1
+	default y
+	---help---
+	   If enabled, all passwords are hashed with SHA1 digests. To make the
+	   resulting hash values unique, the password functions add a 32 Bit
+	   salt value to the password string before hashing.
+
+config RSBAC_UM_USER_MIN
+	int 'Minimum auto user ID'
+	depends on RSBAC_UM=y
+	default 2000
+	---help---
+	  When users get added without giving a desired ID, the system picks the
+	  lowest available number starting from the set value.
+
+config RSBAC_UM_GROUP_MIN
+	int 'Minimum auto group ID'
+	depends on RSBAC_UM=y
+	default 2000
+	---help---
+	  When groups get added without giving a desired ID, the system picks
+	  the lowest available number starting from the set value.
+
+config RSBAC_UM_EXCL
+	bool 'Exclusive user management'
+	depends on RSBAC_UM=y
+	---help---
+	  With this option, RSBAC makes sure that only user and group IDs it
+	  knows about can be used within the system. The User Management
+	  component will only make consistency checks, but the AUTH module will
+	  enforce the exclusive use.
+
+config RSBAC_UM_MIN_PASS_LEN
+	int 'Minimum password length'
+	default 6
+	depends on RSBAC_UM=y
+	---help---
+	  Set this to the minimum length a password set by the user must have.
+	  The default minimum length is 6, but using at least 8 is recommended
+	  for production systems.
+
+	  Passwords set by admins with MODIFY_PERMISSIONS_DATA right to the user
+	  will not be restricted!
+
+config RSBAC_UM_NON_ALPHA
+	bool 'Require non-alphabetic character in password'
+	default y
+	depends on RSBAC_UM=y
+	---help---
+	  This option requires that a password set by the user must have at
+	  least one non-alphabetic character.
+
+	  Passwords set by admins with MODIFY_PERMISSIONS_DATA right on the
+	  user will not be restricted!
+
+config RSBAC_UM_PWHISTORY
+	bool 'Remember password history'
+	default y
+	depends on RSBAC_UM=y
+	---help---
+	  This option requires that the password set by the user must not be
+	  the same as the RSBAC_UM_HISTORY_SIZE previous ones.
+
+	  Passwords set by admins with MODIFY_PERMISSIONS_DATA right on the
+	  user will not be restricted!
+
+config RSBAC_UM_PWHISTORY_MAX
+	int 'Number of successive passwords to remember'
+	default 8
+	depends on RSBAC_UM_PWHISTORY=y
+	---help---
+	  This is the number of passwords RSBAC User Management will
+	  remember and check against when changing a password.
+
+config RSBAC_UM_ONETIME
+	bool 'Support one-time passwords'
+	default n
+	depends on RSBAC_UM=y
+	---help---
+	  With this option you can add additional passwords to every user
+	  account, which can only be used once.
+
+config RSBAC_UM_ONETIME_MAX
+	int 'Max number of one-time passwords per account'
+	default 100
+	depends on RSBAC_UM_ONETIME=y
+	---help---
+	  Set the number of one-time passwords, which can be set at
+	  each account.
+
+config RSBAC_UM_VIRTUAL
+	bool 'Support virtual users'
+	default n
+	depends on RSBAC_UM=y
+	---help---
+	  If enabled, RSBAC User Management supports virtual users,
+	  which are organized in sets with 32 Bit ID numbers. ID 0 is
+          the main set.
+
+config RSBAC_UM_VIRTUAL_ISOLATE
+	bool 'Isolate virtual user sets'
+	default y
+	depends on RSBAC_UM_VIRTUAL=y
+	---help---
+	  Select this option to ensure that users in virtual sets > 0
+	  never see users and groups in other virtual sets.
+endif
+
+if NET
+menu 'RSBAC networking options'
+	depends on RSBAC
+
+config RSBAC_NET
+	bool 'RSBAC network support'
+	depends on NET
+	default y
+	---help---
+	  The net support switch adds generic network device, network template
+	  and network object attribute support.
+
+	  Also, general settings of IPv4 (INET) networks are controlled through
+	  the SCD targets 'network' and 'firewall'.
+
+	  To get network device or object access control, you have to enable
+	  the conditional switches below, as well as the individual model
+	  switches for network access control.
+
+config RSBAC_NET_DEV
+	bool 'Net device control'
+	default y
+	depends on RSBAC_NET
+	---help---
+	  With this option turned on, reading and modifying network device
+	  settings, like binding addresses to devices etc., are controlled as
+	  NETDEV targets. NETDEV objects are identified by their device name.
+
+config RSBAC_NET_DEV_VIRT
+	bool 'Treat virtual devices as individuals'
+	depends on RSBAC_NET_DEV
+	---help---
+	  Turn this on, if you want to provide access control over virtual
+	  devices independently from their base device. Due to the possible
+	  number of virtual devices, be careful with this option.
+
+config RSBAC_IND_NETDEV_LOG
+	bool 'Individual network device logging'
+	default y
+	depends on RSBAC_NET_DEV
+	---help---
+	  Enable individual log levels for every request type for network
+	  devices. Log levels are none, denied requests, full, request based.
+	  Default value is request based for all request types.
+
+	  If this option is off, only general log levels for requests are used
+	  (same as individual logging for all objects set to request based).
+
+config RSBAC_NET_OBJ
+	bool 'Net object control (sockets)'
+	default y
+	depends on RSBAC_NET
+	depends on INET
+	---help---
+	  This option enables access control for all socket based
+	  communication, except the UNIX address family (controlled by extra
+	  option).
+
+	  Access control is based on network object (NETOBJ) targets. Default
+	  values for NETOBJ attributes are derived from the network template
+	  (NETTEMP object), whose description matches this particular network
+	  object.
+
+	  Matching is performed from lowest to highest template number. If no
+	  template matches, general NETOBJ default values will be used.
+	  NOTE: The behaviour in this case is model dependent!
+
+	  Socket system calls are matched to special request types with
+	  matching names.
+
+	  NETTEMP objects themselves are protected as NETTEMP targets with
+	  repective requests.
+
+config RSBAC_NET_OBJ_RW
+	bool 'Also intercept network object read and write'
+	depends on RSBAC_NET_OBJ
+	---help---
+	  If on, READ and WRITE requests on sockets are also checked.
+
+config RSBAC_IND_NETOBJ_LOG
+	bool 'Individual network object logging'
+	default y
+	depends on RSBAC_NET_OBJ
+	---help---
+	  Enable individual log levels for every request type for network
+	  objects.
+	  Log levels are none, denied requests, full, request based.
+	  Default value is request based for all request types.
+
+	  For easier setup, the log levels are set on the network templates,
+	  not the individual network objects.
+
+	  If this option is off, only general log levels for requests are used
+	  (same as individual logging for all objects set to request based).
+endmenu
+endif
+
+config RSBAC_MAINT
+	bool 'RSBAC Maintenance Kernel (Use with care!)'
+	---help---
+	  A maintenance kernel is useful, if the system got unaccessible,
+	  e.g. because the user attributes for Administrator (root), Security
+	  Officer (400) or Data Protection Officer (401, PM only) got lost and
+	  have to be reset.
+	  However, in most cases enabling softmode can have the same effect for
+	  you, but gives the additional benefit of logging the usually denied
+	  accesses.
+
+	  This option turns some of the RSBAC configuration options below
+	  off and disables all access control. Still, you should keep those
+	  modules turned on, which you would like to administrate in
+	  maintenance mode, because only then their data structures are
+	  accessible.
+
+menu 'Decision modules (policy) options'
+	depends on RSBAC
+
+config RSBAC_REG
+	bool 'Support for Registration of decision modules (REG)'
+	default y
+	---help---
+	  If enabled, RSBAC supports runtime registering and unregistering of
+	  additional decision module functions, e.g. from kernel modules.
+
+	  Possible functions are for decision, notification and file contents
+	  overwrite decisions and for write-to-disk notifications.
+
+	  Additionally, syscall functions can be registered to the REG syscall
+	  dispatcher.
+
+	  See <file:Documentation/rsbac/README-reg>,
+	  and the module examples in <file:Documentation/rsbac/reg_sample>
+	  for details.
+
+config RSBAC_REG_SAMPLES
+	bool 'Build REG sample modules'
+	depends on RSBAC_REG && USB
+	---help---
+	  Build the REG sample kernel modules. These modules show how to use
+	  the RSBAC infrastructure, but do not perform any access control.
+
+	  The modules will be named reg_sample1, reg_sample2 and reg_sample3.
+
+menuconfig RSBAC_AUTH
+	bool 'AUTH policy support'
+	default y
+	--help---
+	  This module can be seen as a support module for all others. It
+	  restricts CHANGE_OWNER on process targets (setuid) for a process: the
+	  request is only granted, if the process has either the
+	  auth_may_setuid flag set or the target user ID is in its capability
+	  set.
+	  The auth_may_setuid flag and the capability set are inherited on
+	  execute from the program file.
+
+	  Those file capabilities can be set, if all modules grant a
+	  MODIFY_ATTRIBUTE request for A_auth_add_f_cap or A_auth_remove_f_cap.
+	  Process capabilities can only be added by other processes that have
+	  the auth_may_set_cap flag set, which is also inherited from the
+	  executed file.
+
+	  This way an enforcement of daemon based authentification is possible,
+	  as well as a restriction of system daemons to a set of user IDs.
+
+	  WARNING: If enabled without a login program having auth_may_setuid or
+	           a capability set and without a capability setting daemon,
+		   you will not be able to login to your system!
+	           Use kernel parameter rsbac_auth_enable_login in emergencies
+		   or at the first boot to set auth_may_setuid for /bin/login.
+
+	  Also see AUTH model description in
+	  <http://www.rsbac.org/documentation> for details.
+
+	  If unsure, say Y.
+
+if RSBAC_AUTH
+config RSBAC_AUTH_AUTH_PROT
+	bool 'AUTH module and attribute protection'
+	default y
+	---help---
+	  Only, if this option is on, the AUTH module cares for its own
+	  protection, otherwise it fully depends on other modules
+	  (CONFIG_RSBAC_XX_AUTH_PROT).
+	  This is meant for more sophisticated access control than a simple
+	  system_role setting to security_officer.
+
+	  As a special effect, capability sets are cleared on every write
+	  access to reduce system access after tampering.
+
+	  See AUTH model description for details.
+
+config RSBAC_AUTH_OTHER_PROT
+	bool 'Protect switching of other modules'
+	depends on RSBAC_SWITCH
+	---help---
+         This option makes AUTH care for the switching of other modules.
+         Useful if you want to prevent switching a module back on,
+         because it cannot protect itself in this case.
+
+config RSBAC_AUTH_UM_PROT
+	bool 'AUTH protection for User Management'
+	depends on RSBAC_UM
+	default y
+	---help---
+	  This option makes AUTH care for User Management settings, e.g.
+	  creation, change or deletion of users or groups.
+
+	  See User Management description for details.
+
+config RSBAC_AUTH_DAC_OWNER
+	bool 'AUTH support for effective and fs owner control'
+	---help---
+	  If enabled, AUTH also controls the requests CHANGE_DAC_EFF_OWNER
+	  (change process effective owner) and CHANGE_DAC_FS_OWNER (change
+	  process filesystem owner) on process targets. Changes to these Linux
+	  DAC (Discrete Access Control) model owner settings do not affect
+	  RSBAC, so this option is off by default.
+
+	  This option also requires the 'Control DAC process owner (seteuid,
+	  setfsuid)' option from the 'Other options', which enables the
+	  requests mentioned above.
+
+config RSBAC_AUTH_ALLOW_SAME
+	bool 'Always allow setting to same id'
+	---help---
+	  Normally, AUTH restricts all setuid and setgid calls, including those
+	  to the same uid. Enabling this option allows these calls to be
+	  unrestricted by the AUTH module if the same id is given.
+
+config RSBAC_AUTH_GROUP
+	bool 'AUTH support for Linux group control'
+	---help---
+	  If enabled, AUTH also controls the request CHANGE_GROUP
+	  (change process group) on process targets. Changes to these Linux
+	  DAC (Discrete Access Control) model group settings do not affect
+	  RSBAC, so this option is off by default.
+
+config RSBAC_AUTH_DAC_GROUP
+	bool 'AUTH support for effective and fs group control'
+	depends on RSBAC_AUTH_GROUP
+	---help---
+	  If enabled, AUTH also controls the requests CHANGE_DAC_EFF_GROUP
+	  (change process effective group) and CHANGE_DAC_FS_GROUP (change
+	  process filesystem group) on process targets. Changes to these Linux
+	  DAC (Discrete Access Control) model owner settings do not affect
+	  RSBAC, so this option is off by default.
+
+	  This option also requires the 'Control DAC process group (setegid,
+	  setfsgid)' option from the 'Other options', which enables the
+	  requests mentioned above.
+
+config RSBAC_AUTH_LEARN
+	bool 'AUTH learning mode support'
+	---help---
+	  If set, you can enable AUTH learning mode with the rsbac_auth_learn
+	  kernel parameter. In learning mode, the AUTH module will automatically
+	  add all missing auth capabilities.
+
+	  WARNING: This option is useful, but dangerous, so it should be off on
+	           production systems.
+config RSBAC_AUTH_LEARN_TA
+	int 'Learning mode transaction number'
+	default 0
+	depends on RSBAC_AUTH_LEARN
+	depends on RSBAC_LIST_TRANS
+	---help---
+	  Put learned items into transaction with this number. The
+	  transaction is created, if it does not exist. The default
+	  value 0 means do not use transactions, all extra rights
+	  get added immediately.
+
+	  Note: As the additional rights only appear in the transaction,
+	        the same rights may seem to be added repeatedly, until
+	        the transaction is committed.
+	  Note: All transactions have a maximum lifetime, after which
+	        all data is lost, unless you commit or refresh in time,
+		e.g. with the rsbac_list_ta command line tool.
+	        Increase RSBAC_LIST_TRANS_MAX_TTL as desired.
+
+endif
+
+menuconfig RSBAC_RC
+	bool 'RC policy support'
+	default y
+	---help---
+	  The Role Compatibility model is a powerful and flexible role based
+	  model. It supports an unlimited number of roles and types. Types are
+	  grouped per target type. Each role definition has compatibility
+	  vectors for all types and other roles.
+
+	  Additionally, there are default create/chown/execute types and
+	  several special values for inheritance options.
+	  Roles can also be forced by executable file attributes, similar to
+	  the setuid/setgid mechanism in Unix file systems.
+
+	  See <http://www.rsbac.org/documentation> for details.
+
+	  If unsure, say Y.
+
+if RSBAC_RC
+config RSBAC_RC_AUTH_PROT
+	bool 'RC protection for AUTH module'
+	default y
+	---help---
+	  This option makes RC care for AUTH module settings, e.g. attributes
+	  auth_may_setuid, auth_may_set_cap and the kernel-only pseudo
+	  attributes auth_add_f_cap, auth_remove_f_cap, auth_get_caplist.
+
+	  These settings are protected by SCD type compatibility with type
+	  auth_administration, which is set for default role 1 (Role Admin).
+
+	  See AUTH model description for details.
+
+config RSBAC_RC_UM_PROT
+	bool 'RC protection for User Management'
+	depends on RSBAC_UM
+	default y
+	---help---
+	  This option makes RC care for User Management settings, e.g. creation,
+	  change or deletion of users or groups.
+
+	  See User Management description for details.
+
+config RSBAC_RC_GEN_PROT
+	bool 'RC protection for GENeral attributes'
+	default y
+	---help---
+	  If on, RC protects general attributes (GEN module) like its own, e.g.,
+	  in default setup only Role Admins may change them.
+
+config RSBAC_RC_BACKUP
+	bool 'Provide RC backup files'
+	depends on RSBAC_PROC
+	---help---
+	  If enabled, RC provides its binary ACI data files in
+	  /proc/rsbac-info/backup.
+
+	  Because of better backup options with admin tools, this is off by
+	  default.
+
+	  If unsure, say N.
+
+config RSBAC_RC_NET_DEV_PROT
+	bool 'RC network device protection'
+	default y
+	depends on RSBAC_NET_DEV
+	---help---
+	  If on, protect network devices based on RC NETDEV type
+	  compatibilities.
+
+config RSBAC_RC_NET_OBJ_PROT
+	bool 'RC network object protection'
+	default y
+	depends on RSBAC_NET_OBJ
+	---help---
+	  Turn this on to have real RC access control on network objects based
+	  on RC type compatibilities.
+
+	  The NETOBJ default type values are derived from those of the matching
+	  network template.
+
+	  Templates themselves are protected through their own template type
+	  in attribute rc_type_nt and the nettemp type compatibility settings.
+
+config RSBAC_RC_NET_OBJ_UNIX_PROCESS
+	bool 'RC check access to UNIX partner process'
+	default n
+	---help---
+	  This option enables additional checks for UNIX sockets: If a peer
+	  process is known (via peer credential), the requesting process also
+	  needs the same right as in the request to the RC type of the
+	  other process.
+
+	  Affected request types are CONNECT, ACCEPT, SEND and RECEIVE. If
+	  READ and WRITE checking of network sockets is enabled, these request
+	  types are checked as RECEIVE and SEND to avoid possible confusion
+	  about read and write accesses to processes.
+
+config RSBAC_RC_LEARN
+	bool 'Enable learning mode for missing role rights to types'
+	depends on RSBAC_DEBUG
+	---help---
+	  This option allows to enable a learning mode per global switch.
+	  In learning mode, missing role rights to types will be added
+	  automatically. However, it will never add new roles or types
+	  even when this would be a much better solution.
+	  Enable temporarily for all roles with the rsbac_rc_learn
+	  kernel parameter or temporarily at runtime via proc interface.
+
+	  Please check <http://www.rsbac.org/documentation>
+	  for more info about how the RC model works.
+
+config RSBAC_RC_LEARN_TA
+	int 'Learning mode transaction number'
+	default 0
+	depends on RSBAC_RC_LEARN
+	depends on RSBAC_LIST_TRANS
+	---help---
+	  Put learned items into transaction with this number. The
+	  transaction is created, if it does not exist. The default
+	  value 0 means do not use transactions, all extra rights
+	  get added immediately.
+
+	  Note: As the additional rights only appear in the transaction,
+	        the same rights may seem to be added repeatedly, until
+	        the transaction is committed.
+	  Note: All transactions have a maximum lifetime, after which
+	        all data is lost, unless you commit or refresh in time,
+		e.g. with the rsbac_list_ta command line tool.
+	        Increase RSBAC_LIST_TRANS_MAX_TTL as desired.
+
+config RSBAC_RC_NR_P_LISTS
+	int 'RC number of process lists'
+	default 8
+	---help---
+	  When using RC model, every process in the system will get individual
+	  attributes set. This means that with many active processes, the list
+	  lookups will become slower.
+
+	  To speed them up, RSBAC uses a hash table to split the RC process
+	  attribute lists into several shorter ones. This option sets the
+	  initial number of these lists, it will automatically grow when
+	  needed.
+
+config RSBAC_RC_KERNEL_PROCESS_TYPE
+	int 'RC kernel process type'
+	default 999999
+	---help---
+	  This is the type being assigned to all kernel processes, despite the
+	  initiating process owner role's def_process_create_type.
+
+	  The default value is 999999. It should only be changed, if you have
+	  role number conflicts with your existing configuration.
+endif
+
+menuconfig RSBAC_ACL
+	bool 'ACL policy support'
+	default y
+	---help---
+	  This turns on the Access Control List module. ACLs are kept on all
+	  targets but those of type USER. For the IPC and PROCESS targets
+	  there is only one default ACL each.
+
+	  Each ACL entry contains subject type (user, rc_role, acl_group),
+	  subject id and the rights this subject has. Also, rights are inherited
+	  from parents and from a target specific default ACL.
+
+	  Most settings have a time-to-live (TTL) option, which automatically
+	  removes them after a certain amount of time.
+
+	  See <http://www.rsbac.org/documentation> for details.
+
+if RSBAC_ACL
+config RSBAC_ACL_SUPER_FILTER
+	bool 'Allow masking out of SUPERVISOR right'
+	---help---
+	  Normally, inheritance masks can never filter out the SUPERVISOR right
+	  (which contains all other rights) - it is always inherited.
+
+	  If this switch is on, SUPERVISOR *can* be filtered out. This allows
+	  separation of duties and privacy, but is also dangerous, because
+	  administration can easily become impossible. In this case, you have to
+	  reboot into a maintenance kernel to regain access.
+
+	  For safety reasons, you must have a USER ACL entry at the target
+	  containing the SUPERVISOR right to set a new mask without SUPERVISOR.
+
+config RSBAC_ACL_AUTH_PROT
+	bool 'ACL protection for AUTH module'
+	default y
+	---help---
+	  This option makes ACL care for AUTH module settings, e.g. attributes
+	  auth_may_setuid, auth_may_set_cap and the kernel-only pseudo
+	  attributes auth_add_f_cap, auth_remove_f_cap, auth_get_caplist. Those
+	  settings are protected by SCD 'auth_administration' ACL.
+
+	  See AUTH model description for AUTH details.
+
+config RSBAC_ACL_UM_PROT
+	bool 'ACL protection for User Management'
+	depends on RSBAC_UM
+	default y
+	---help---
+	  This option makes ACL care for User Management settings, e.g.
+	  creation, change or deletion of users or groups.
+
+	  See User Management description for details.
+
+config RSBAC_ACL_GEN_PROT
+	bool 'ACL protection for GENeral attributes'
+	default y
+	---help---
+	  If on, ACL protects general attributes (GEN module) through
+	  the MODIFY_ATTRIBUTE right.
+	  In default setup, only user 400 may change them.
+
+config RSBAC_ACL_BACKUP
+	bool 'Provide ACL backup files'
+	depends on RSBAC_PROC
+	---help---
+	  If on, ACL provides its binary group and group membership data files
+	  in /proc/rsbac-info/backup.
+
+config RSBAC_ACL_LEARN
+	bool 'ACL learning mode support'
+	---help---
+	  If enabled, you can enable ACL learning mode with rsbac_acl_learn or
+	  rsbac_acl_learn_fd kernel parameter. In learning mode, ACL module will
+	  automatically add all missing acl entries for filesystem objects.
+
+	  WARNING: This option is useful, but dangerous, so it should be off on
+	           production systems.
+
+config RSBAC_ACL_LEARN_TA
+	int 'Learning mode transaction number'
+	default 0
+	depends on RSBAC_ACL_LEARN
+	depends on RSBAC_LIST_TRANS
+	---help---
+	  Put learned items into transaction with this number. The
+	  transaction is created, if it does not exist. The default
+	  value 0 means do not use transactions, all extra rights
+	  get added immediately.
+
+	  Note: As the additional rights only appear in the transaction,
+	        the same rights may seem to be added repeatedly, until
+	        the transaction is committed.
+	  Note: All transactions have a maximum lifetime, after which
+	        all data is lost, unless you commit or refresh in time,
+		e.g. with the rsbac_list_ta command line tool.
+	        Increase RSBAC_LIST_TRANS_MAX_TTL as desired.
+
+config RSBAC_ACL_NET_DEV_PROT
+	bool 'ACL network device protection'
+	default y
+	depends on RSBAC_NET_DEV
+	---help---
+	  If on, protect network devices based on individual and default ACLs.
+
+config RSBAC_ACL_NET_OBJ_PROT
+	bool 'ACL network object protection'
+	default y
+	depends on RSBAC_NET_OBJ
+	---help---
+	  Turn this on to have real ACL access control on network objects based
+	  on inherited ACLs.
+
+	  When determining a subject's right to a network object (NETOBJ), the
+	  following inheritance scheme is used:
+	    - If there is an ACL entry at the NETOBJ itself, use it, else
+	    - If there is an ACL entry at the matching template, use that, but
+	      filter through individual mask, else
+	    - If there is an ACL entry in the NETOBJ default ACL, use that, but
+	      filter through individual mask and matching template's mask.
+
+	  Certainly, user, role and group rights are accumulated as usual.
+
+	  Templates themselves are protected through their own individual and
+	  default ACLs, which are configured using the NETTEMP_NT target.
+endif
+
+menuconfig RSBAC_MAC
+	bool 'MAC policy support'
+	---help---
+	  Mandatory Access Control follows the Bell-LaPadula security model,
+	  in which all users and resources are classified in levels of
+	  confidentiality. Additionally, each subject and object has a set out
+	  of 64 categories.
+
+	  To read from a resource, a user's level must be at least as high as
+	  that of the resource, and the user's category set must be a superset
+	  of the category set of the resource.
+	  To write to a resource, it must be at least as confidential as the
+	  user, and its category set must be a superset of the user's.
+
+	  See <http://www.rsbac.org/documentation> for details.
+
+if RSBAC_MAC
+config RSBAC_MAC_DEF_INHERIT
+	bool 'MAC inherit as default'
+	default y
+	---help---
+	  If enabled, the inheritable attributes security_level and
+	  mac_categories for files, fifos and directories get the default value
+	  'inherit' instead of the old style real value. This reduces the amount
+	  of attributes to be set significantly, because files, fifos and dirs
+	  inherit their parent dir's attribute values automatically. Inheritance
+	  ends at root dir /.
+
+	  This setting should be kept constant between different RSBAC kernels
+	  in use to avoid confusion for administrators/security officers,
+	  rsbac_check() and backup.
+
+	  Please note that inheritance is not conforming to the Bell-LaPadula
+	  model, where all objects must be individually labeled.
+
+config RSBAC_MAC_SMART_INHERIT
+	bool 'Smart inherit'
+	default y
+	depends on RSBAC_MAC_DEF_INHERIT
+	---help---
+	  If enabled, the MAC model checks whether the values of attributes
+	  security_level and mac_categories for new objects would already be in
+	  effect via inheritance. Only if the inherited value differs, the new
+	  values are set explicitely. Otherwise the default value 'inherit' is
+	  automatically applied.
+
+	  This option largely reduces the amount of new attribute objects needed
+	  for whole created directory trees with same values. It thus saves
+	  memory and CPU cycles.
+
+	  However, inheritance is not conforming to the Bell-LaPadula model,
+	  where all objects must be individually labeled - here we are even
+	  denying explicit labeling of new objects. Use with care.
+
+config RSBAC_MAC_AUTH_PROT
+	bool 'MAC protection for AUTH module'
+	---help---
+	  This option makes MAC care for AUTH module settings, e.g. attributes
+	  auth_may_setuid, auth_may_set_cap and the kernel-only pseudo
+	  attributes auth_add_f_cap, auth_remove_f_cap, auth_get_caplist. These
+	  settings are treated like MAC settings.
+
+	  See AUTH model description for details.
+
+config RSBAC_MAC_UM_PROT
+	bool 'MAC protection for User Management'
+	depends on RSBAC_UM
+	default y
+	---help---
+	  This option makes MAC care for User Management settings, e.g.
+	  creation, change or deletion of users or groups.
+
+	  See User Management description for details.
+
+config RSBAC_MAC_GEN_PROT
+	bool 'MAC protection for GENeral attributes'
+	---help---
+	  If on, MAC protects general attributes (GEN module) like its own,
+	  i.e., only security officers may change them.
+
+config RSBAC_MAC_LIGHT
+	bool 'Light MAC edition'
+	---help---
+	  This option makes MAC easier to use, but a bit less conforming to the
+	  Bell-LaPadula model.
+	   1. Allow R_CREATE of new files WITHOUT any checking. This way, higher
+	      level objects can be created in a lower level directory.
+	   2. Allow R_MOUNT and R_UMOUNT to ANY user (only Administrator in base
+	      MAC version).
+
+config RSBAC_MAC_TRUSTED_READ
+	bool 'Give trusted processes full read access'
+	---help---
+	  Normally, a mac_trusted process may only violate *-property, i.e., it
+	  may write to any level within its owner's level range from
+	  min_security_level to security_level, regardless of its current level
+	  and the max_read boundary. This makes a user's trusted flag equivalent
+	  to the combination of write_up and write_down flag.
+
+	  With this option turned on, a trusted process may also read from any
+	  such level despite its current level and the min_write boundary. This
+	  adds the meaning of the read_up flag to the trusted flag.
+
+	  Please note that the mac_auto privilege with automatic current level
+	  and read/write boundary adjustment as well as the object mac_shared
+	  flag are always tried before trusted, write_up, write_down and
+	  read_up.
+
+config RSBAC_MAC_RESET_CURR
+	bool 'Reset current level on each execute'
+	---help---
+	  If enabled, the current process level is reset to the user's initial
+	  level on every execute.
+
+config RSBAC_MAC_LOG_LEVEL_CHANGE
+	bool 'Log all automatic changes to current level'
+	default y
+	---help---
+	  If both the effective mac_auto flag at an executable and the
+	  mac_allow_auto flag at the user executing it are set, current levels
+	  may be automatically adjusted to allow access, where it would
+	  otherwise be denied.
+
+	  This option logs each such automatic change to the process current
+	  level, because it means a change to the current access rights.
+
+config RSBAC_MAC_NET_DEV_PROT
+	bool 'MAC network device protection'
+	depends on RSBAC_NET_DEV
+	---help---
+	  If enabled, The MAC module protects network devices in that only
+	  System Administrators may configure them.
+
+config RSBAC_MAC_NET_OBJ_PROT
+	bool 'MAC network object protection'
+	depends on RSBAC_NET_OBJ
+	---help---
+	  Turn this on to have real MAC access control on network objects based
+	  on security levels and categories.
+
+	  The default attribute values are derived from those of the matching
+	  network template.
+
+config RSBAC_MAC_NR_P_LISTS
+	int 'MAC number of process lists'
+	default 4
+	---help---
+	  When using MAC model, every process in the system will get individual
+	  attributes set. This means that with many active processes, the list
+	  lookups will become slower.
+
+	  To speed them up, RSBAC uses a hash table to split the MAC process
+	  attribute lists into several shorter ones. This option sets the number
+	  of these lists.
+
+	  In most cases, the default of 4 will be sufficient. However, if you
+	  plan to have very many processes, a higher value will reduce lookup
+	  time at the cost of additional list headers.
+endif
+
+menuconfig RSBAC_PAX
+	bool 'PAX policy support'
+	default y
+	depends on PAX
+	---help---
+	  The PAX module allows to administrate the PaX flags of programs and
+	  processes. To have these flags enforced, you need to enable
+	  "direct" MAC integration in the PaX control menu under the security
+	  menu (CONFIG_PAX_NO_ACL_FLAGS).
+
+	  PaX is a separate Linux kernel patch available at
+	  <http://pax.grsecurity.net>.
+	  Please have a look at the homepage to get some more information.
+
+if RSBAC_PAX
+config RSBAC_PAX_DEFAULT
+	bool 'Change PAX default flags (PeMRxS)'
+	        help
+	  This option allows to change the PaX default flags for all files from
+	  PeMRxS to any other value.
+	  Please be careful, if you change this setting, specially with existing
+	  configurations - unexpected failures of previously running programs
+	  might happen. Nothing you could not fix by reconfiguration, though.
+
+config RSBAC_PAX_PAGEEXEC
+	bool 'PAX Default P: Enable paging based non-exec pages'
+	        depends on RSBAC_PAX_DEFAULT
+	default y
+
+config RSBAC_PAX_EMUTRAMP
+	bool 'PAX Default E: Emulate Trampolines'
+	        depends on RSBAC_PAX_DEFAULT
+
+config RSBAC_PAX_MPROTECT
+	bool 'PAX Default M: Restrict mprotect'
+	        depends on RSBAC_PAX_DEFAULT
+	default y
+
+config RSBAC_PAX_RANDMMAP
+	bool 'PAX Default R: Randomize mmap() base'
+	        depends on RSBAC_PAX_DEFAULT
+	default y
+
+config RSBAC_PAX_RANDEXEC
+	bool 'PAX Default X: Randomize ET_EXEC base'
+	        depends on RSBAC_PAX_DEFAULT
+
+config RSBAC_PAX_SEGMEXEC
+	bool 'PAX Default S: Segmentation based non-exec pages'
+	        depends on RSBAC_PAX_DEFAULT
+	default y
+endif
+
+menuconfig RSBAC_DAZ
+	bool 'DAZuko policy support'
+	---help---
+	  The Dazuko policy provides the Dazuko malware scanning interface.
+	  Scanning results may optionally be cached, see CONFIG_RSBAC_DAZ_CACHE
+	  below.
+
+	  Only programs marked as scanners may connect to the Dazuko interface,
+	  and only DAZ security administrators are allowed to modify daz_scanner
+	  or daz_scanned.
+
+if RSBAC_DAZ
+config RSBAC_DAZ_SELECT
+	bool 'Let scanners subselect paths'
+	default y
+	---help---
+	  Through Dazuko interface, scanners can define a set of paths
+	  they are interested in. Without this option, RSBAC will ignore
+	  these paths for the sake of speed and full mandatory control.
+
+	  Please note that with RSBAC the daz_do_scan attribute on FD
+	  objects controls which paths get scanned or not. The scanner
+	  selection only reduces the set of paths, never increases.
+
+	  In previous RSBAC versions, subselection by scanners was
+	  always on. It now defaults to on, will be off in next RSBAC
+	  version.
+
+config RSBAC_DAZ_CACHE
+	bool 'Cache scanning results'
+	default y
+	---help---
+	  With this option, all scanning results get cached for the time
+	  specified below.
+
+config RSBAC_DAZ_TTL
+	int 'Scanning result lifetime in seconds'
+	default 86400
+	depends on RSBAC_DAZ_CACHE
+	---help---
+	  Specify the time in seconds a scanning result is kept. After this time
+	  the object will be rescanned on the next access.
+
+	  Use 0 for unlimited, default is 86400 (1 day). Set to 1 to force a
+	  fast rescan.
+
+config RSBAC_DAZ_PERSIST
+	bool 'Keep scanning results over reboot'
+	depends on RSBAC_DAZ_CACHE
+	---help---
+	  If on, file scanning results, which are younger than their life time
+	  limit, are kept persistently during reboots.
+
+	  Using this option can reduce the amount of scanning, but it cannot
+	  protect against file modifications while another kernel is booted.
+
+config RSBAC_DAZ_DEV_MAJOR
+	int	'Dazuko device major number'
+	default 250
+	---help---
+	  Specify the major char device number for /dev/dazuko,
+	  which is used for scanner registration and communication.
+
+	  Use 0 to let the system pick one.
+endif
+
+menuconfig RSBAC_CAP
+	bool 'CAP (Linux CAP) policy support'
+	default y
+	---help---
+	  The Linux Capability (CAP) module allows to set minimum and maximum
+	  Linux capability sets for single users and programs. These boundaries
+	  are applied at CHANGE_OWNER on processes (setuid) and EXECUTE.
+
+	  Minimum settings have precedence over maximums, and program settings
+	  have precedence over user settings.
+
+	  Use this module to run programs that need root privileges from normal
+	  user accounts, e.g. file server daemons, or to restrict programs run
+	  by root, e.g. certain mail daemons.
+
+	  If softmode is enabled and turned on, only the minimum sets are
+	  applied.
+
+
+if RSBAC_CAP
+config RSBAC_CAP_PROC_HIDE
+	bool 'Support CAP process hiding'
+	default y
+	---help---
+	  If enabled, you can hide the process properties shown in /proc from
+	  other users, e.g. command line and current state. The hiding level is
+	  set with the cap_process_hiding process attribute. There are three
+	  possible values:
+	  0 / off: no hiding.
+	  1 / from other users: only processes running for the same user, a CAP
+	      security officer or a CAP system admin may read the properties.
+	  2 / full: only this process and CAP security officers may read the
+	      properties.
+
+	  The kernel command line switch rsbac_cap_process_hiding changes the
+	  default value from 0 to 1. Thus, every normal user can only see her
+	  own process properties.
+
+config RSBAC_CAP_AUTH_PROT
+	bool 'CAP protection for AUTH module'
+	---help---
+	  This option makes CAP care for AUTH module settings, e.g. attributes
+	  auth_may_setuid, auth_may_set_cap and the kernel-only pseudo
+	  attributes auth_add_f_cap, auth_remove_f_cap, auth_get_caplist. Those
+	  settings are protected by the cap_roles admin (read) and security
+	  officer (rw).
+
+	  See AUTH model description for AUTH details.
+
+config RSBAC_CAP_LOG_MISSING
+	bool 'Log missing capabilities in capable()'
+	---help---
+	  If checked, the Linux capability check function capable() can log
+	  all queries for capabilities, which are missing from the effective
+	  set. Enable with the rsbac_cap_log_missing kernel parameter, or at
+	  runtime via proc interface.
+	  The only exception is CAP_SYS_ADMIN, which fails much too often
+	  and thus never gets logged.
+
+	  Background: If you limit Linux capabilities for users or programs
+	  with the CAP module, some programs fail in secure mode without
+	  "NOT_GRANTED" RSBAC log messages, because this Linux internal check
+	  failed.
+
+	  Please check <http://www.rsbac.org/documentation>
+	  for more info about how the CAP module works.
+
+config RSBAC_CAP_LEARN
+	bool 'Learn missing capabilities in capable()'
+	---help---
+	  If checked, the Linux capability check function capable() will
+	  set all capabilities in the max_caps set of user or program,
+	  which are missing from the current process effective set because
+	  of RSBAC max_caps restrictions.
+	  Enable with the rsbac_cap_learn kernel parameter or at runtime
+	  via proc interface.
+	  Warning: In learning mode, a program with reduced max_caps might
+	  temporarily get more effective caps assigned than granted by
+	  standard kernel!
+
+	  Background: If you limit Linux capabilities for users or programs
+	  with the CAP module, some programs fail in secure mode without
+	  "NOT_GRANTED" RSBAC log messages, because this Linux internal check
+	  failed.
+
+	  Please check <http://www.rsbac.org/documentation>
+	  for more info about how the CAP module works.
+
+config RSBAC_CAP_LEARN_TA
+	int 'Learning mode transaction number'
+	default 0
+	depends on RSBAC_CAP_LEARN
+	depends on RSBAC_LIST_TRANS
+	---help---
+	  Put learned items into transaction with this number. The
+	  transaction is created, if it does not exist. The default
+	  value 0 means do not use transactions, all extra rights
+	  get added immediately.
+
+	  Note: As the additional rights only appear in the transaction,
+	        the same rights may seem to be added repeatedly, until
+	        the transaction is committed.
+	  Note: All transactions have a maximum lifetime, after which
+	        all data is lost, unless you commit or refresh in time,
+		e.g. with the rsbac_list_ta command line tool.
+	        Increase RSBAC_LIST_TRANS_MAX_TTL as desired.
+endif
+
+menuconfig RSBAC_JAIL
+	bool 'JAIL policy support'
+	default y
+	---help---
+	  The JAIL module gives you an extended chroot facility, similar to
+	  FreeBSD Jails. To put a process into a jail, start it with the
+	  rsbac_jail wrapper or make it call the sys_rsbac_jail syscall
+	  directly.
+
+	  With RSBAC network object support, jailed processes can only use a
+	  designated IP address (if designated address is not 0.0.0.0), and
+	  UNIX or INET sockets of type STREAM, DGRAM or RDM. All other families
+	  and types, e.g. RAW network access, are generally prohibited.
+
+	  From within a jail, only processes and IPC objects of the same jail
+	  can be accessed. Jails can be created from within jails, but get
+	  limited to the parent jail's filesystem root, IP and flags.
+
+	  Additionally, most kernel based administration tasks are forbidden,
+	  e.g. creating device special files, setting network addresses,
+	  getting or setting RSBAC attributes, changing system settings like
+	  name or rlimits etc.
+
+	  Several sys_rsbac_jail flags change the jail behaviour:
+	    - allow_external_ipc: allow to access IPC objects outside this jail
+	    - allow_rlimit: allow to change rlimit
+	    - allow_all_net_family: allow to use all network families, not only
+	      UNIX and INET (IPv4)
+	    - allow_inet_raw: allow to use RAW INET sockets, e.g. for ping
+	    - auto_adjust_inet_any: also allow to bind to INET ANY address
+	      (0.0.0.0), but always change it to specified address
+	      (requires CONFIG_RSBAC_JAIL_NET_ADJUST)
+
+if RSBAC_JAIL
+config RSBAC_JAIL_NET_ADJUST
+	bool 'JAIL allow to auto-adjust INET ANY (0.0.0.0) address'
+	default y
+	depends on RSBAC_NET_OBJ
+	---help---
+	  Turn this option on to allow automatic adjusting of the INET ANY
+	  address 0.0.0.0 to the specified address with the
+	  auto_adjust_inet_any syscall flag.
+
+config RSBAC_JAIL_NET_DEV_PROT
+	bool 'JAIL network device protection'
+	default y
+	depends on RSBAC_NET_DEV
+	---help---
+	  Only with this option enabled can the JAIL module prevent network
+	  device configuration from within a jail. Recommended.
+
+config RSBAC_JAIL_NR_P_LISTS
+	int 'JAIL number of process lists'
+	default 4
+	---help---
+	  When using JAIL model, every process in the system will get individual
+	  attributes set. This means that with many active processes, the list
+	  lookups will become slower.
+
+	  To speed them up, RSBAC uses a hash table to split the JAIL process
+	  attribute lists into several shorter ones. This option sets the number
+	  of these lists.
+
+	  In most cases, the default of 4 will be sufficient. However, if you
+	  plan to have very many processes, a higher value will reduce lookup
+	  time at the cost of additional list headers.
+
+config RSBAC_JAIL_LOG_MISSING
+	bool 'Log missing capabilities in capable()'
+	---help---
+	  If checked, the Linux capability check function capable() can log
+	  all queries for capabilities, which are missing from the effective
+	  set. Enable with the rsbac_jail_log_missing kernel parameter, or at
+	  runtime via proc interface.
+
+	  Background: If you limit Linux capabilities for users or programs
+	  within a JAIL, some programs fail in secure mode without
+	  "NOT_GRANTED" RSBAC log messages, because this Linux internal check
+	  failed.
+
+	  Please check
+	  <http://www.rsbac.org/documentation>
+	  for more info about how the JAIL module works.
+endif
+
+config RSBAC_RES
+	bool 'RES (System Resources) policy support'
+	default y
+	---help---
+	  The Linux Resources (RES) module allows to set minimum and maximum
+	  Linux resource sets for single users and programs. These boundaries
+	  are applied at CHANGE_OWNER on processes (setuid) and EXECUTE.
+
+	  Minimum settings have precedence over maximums, and program settings
+	  have precedence over user settings.
+
+	  Default values for all users can be set at user RSBAC_ALL_USER with
+	  uid 4294967292 ((rsbac_uid_t) -4).
+
+	  If softmode is enabled and turned on, only the minimum sets are
+	  applied.
+
+menuconfig RSBAC_FF
+	bool 'FF policy support'
+	default y
+	---help---
+	  The File Flag module adds some flags for files and dirs to the
+	  system. Current flags are:
+
+	  execute_only (files): Only request EXECUTE is granted
+
+	  read_only (files and dirs): Only non-modifying requests are granted
+
+	  search_only (dirs): All file/subdir accesses need full path, no
+	    listing or modification of dir is granted.
+
+	  write_only (files): Only writing requests are granted, useful for
+	    logging etc. Specially good if inherited to new files from a dir.
+
+	  no_execute (files): No execution of this file allowed.
+
+	  add_inherited (files and dirs): Add (or) flags of parent dir to own
+	    flags. This last flag makes the file flags powerful: simply set
+	    a file flag for a dir (e.g. no_execute on /home), and the whole
+	    subtree is affected.
+
+	  no_rename_or_delete (files and dirs, not inherited): Prevents renaming
+	    or deleting an object, e.g to keep a directory structure fixed.
+
+	  append_only (files): the only write access allowed is APPEND_OPEN.
+	    Good for log files.
+
+if RSBAC_FF
+config RSBAC_FF_AUTH_PROT
+	bool 'FF protection for AUTH module'
+	---help---
+	  This option makes FF care for AUTH module settings, e.g. attributes
+	  auth_may_setuid, auth_may_set_cap and the kernel-only pseudo
+	  attributes auth_add_f_cap, auth_remove_f_cap, auth_get_caplist. Those
+	  settings are treated like FF settings.
+
+	  See AUTH model description for details.
+
+config RSBAC_FF_UM_PROT
+	bool 'FF protection for User Management'
+	depends on RSBAC_UM
+	default y
+	---help---
+	  This option makes FF care for User Management settings, e.g. creation,
+	  change or deletion of users or groups.
+
+	  See User Management description for details.
+
+config RSBAC_FF_GEN_PROT
+	bool 'FF protection for GENeral attributes'
+	---help---
+	  If on, FF protects general attributes (GEN module) like its own, i.e.,
+	  only security officers may change them.
+endif
+
+menuconfig RSBAC_PM
+	bool 'PM policy support'
+	---help---
+	  The Privacy Model defines tasks, for which personal data of certain
+	  classes has been collected. Similar to the Clark Wilson Model it
+	  defines Transformation Procedures to be applied by authorised users
+	  to data classes performing tasks they are authorised for. In
+	  addition, the TP's task must match the tasks data in this class was
+	  collected for.
+	  Also, users are classified as general, security administrator
+	  and privacy agent with appropriate access rights.
+
+	  See <file:Documentation/rsbac> for details.
+
+if RSBAC_PM
+config RSBAC_PM_AUTH_PROT
+	bool 'PM protection for AUTH module'
+	---help---
+	  This option makes PM care for AUTH module settings, e.g. attributes
+	  auth_may_setuid, auth_may_set_cap and the kernel-only pseudo
+	  attributes auth_add_f_cap, auth_remove_f_cap, auth_get_caplist. Those
+	  settings are treated like PM settings.
+
+	  Real AUTH attributes can only be set with PM tickets and sys_rsbac_pm
+	  system call, which calls all other decision modules before setting.
+
+	  See AUTH model description for details.
+
+config RSBAC_PM_GEN_PROT
+	bool 'PM protection for GENeral attributes'
+	---help---
+	  If on, PM protects general attributes (GEN module) so that only
+	  security officers may change them.
+endif
+
+endmenu
+# Policies
+
+
+if RSBAC_MAINT = n
+
+menu 'Softmode and switching'
+	depends on RSBAC
+
+config RSBAC_SOFTMODE
+	default y
+	bool 'RSBAC soft mode'
+	---help---
+	  This option enables RSBAC softmode support. In softmode, all
+	  decisions and logging are performed, but the result that is returned
+	  to enforcement is always DO_NOT_CARE. This means that access control
+	  is effectively off!
+
+	  Single exception: even in softmode, all access to rsbac attribute dirs
+	  is always NOT_GRANTED.
+
+	  After boot, softmode will be off, unless kernel parameter
+	  'rsbac_softmode' has been given. It can be turned on via proc
+	  interface with
+
+	       echo debug softmode <value> > /proc/rsbac-info/debug,
+
+	  where <value> is 1 (on) or 0 (off).
+	  If policy switching is enabled, you can also use sys_rsbac_switch,
+	  e.g. via switch_module command line tool.
+
+	  Switching softmode on or off is access controlled with an ADF request
+	  SWITCH_MODULE for module SOFTMODE. The RSBAC builtin modules only
+	  allow softmode under the same conditions as switching themselves off.
+
+	  WARNING: For security reasons, this option should only be used for
+	  debugging of your RSBAC administration settings!
+
+	  Additionally, you might get strange effects during the notification
+	  call rsbac_adf_set_attr(), because the request should not have been
+	  granted in the first place. Unexpected access decisions might occur,
+	  because attributes might have misleading values!
+
+config RSBAC_SOFTMODE_SYSRQ
+	bool 'Toggle soft mode with SysRq-X'
+	depends on RSBAC_SOFTMODE
+	---help---
+	  If this setting and kernel SysRq are enabled, you can toggle softmode
+	  with SysRq-X (char can be changed in rsbac/debug.h).
+	  This makes debugging of your RSBAC administration settings much
+	  easier.
+
+	  WARNING: This is dangerous, because everyone with physical access to
+	           your keyboard can effectively turn off access control!
+
+	  Do not use in production systems!
+
+	  If unsure, say N.
+
+config RSBAC_SOFTMODE_IND
+	bool 'Individual module softmode support'
+	default y
+	depends on RSBAC_SOFTMODE
+	---help---
+	  If on, you can toggle softmode individually for each module.
+	  Softmode for a module can be switched via proc interface with
+
+	       echo debug ind_softmode <module> <value> > /proc/rsbac-info/debug
+
+	  where <module> is the module short name in capitals, e.g. RC, and
+	  <value> is 1 (on) or 0 (off).
+	  If policy switching is enabled, you can also use sys_rsbac_switch,
+	  e.g. via switch_module command line tool.
+
+config RSBAC_SWITCH
+	default y
+	bool 'RSBAC policies switchable'
+	---help---
+	  If enabled, the configured policies can be switched on or off by
+	  syscall sys_rsbac_switch().
+
+	  Of course, switching modules off is performed under their own control.
+
+	  Warning: Though switching off is access controlled itself, any way to
+	  switch off access control is always dangerous!
+
+config RSBAC_SWITCH_ON
+	bool 'Allow to switch stateful modules back on'
+	depends on RSBAC_SWITCH
+	---help---
+	  Some modules must be active all the time to keep their state intact,
+	  e.g. to have correct process roles or security levels. This means
+	  that after turning such a module off, it is in an inconsistent state
+	  and can block the whole system when turned back on. Most prominent
+	  examples are RC and MAC. Some modules only loose part of their
+	  ability to protect the system, e.g. JAIL does not jail new processes.
+
+	  By default, modules that can block the system may never be turned on,
+	  only off. Enable this switch to be able to turn them back on - you
+	  have been warned!
+
+config RSBAC_SWITCH_BOOT_OFF
+	bool 'Allow to switch modules off with kernel parameter'
+	depends on RSBAC_SWITCH
+	---help---
+	  Enable this to allow switching modules off by kernel parameter
+	  rsbac_switch_off_xyz with xyz = module name in small letters,
+	  e.g. rc or auth. Module needs to be set switchable below.
+
+config RSBAC_SWITCH_REG
+	default y
+	bool 'Switch REG modules'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_REG
+	---help---
+	  Select to switch REG modules on and off at runtime.
+
+config RSBAC_SWITCH_AUTH
+	bool 'Switch AUTH policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_AUTH
+	---help---
+	  Select to switch AUTH module on and off at runtime.
+
+config RSBAC_SWITCH_RC
+	bool 'Switch RC policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_RC
+	---help---
+	  Select to switch RC module on and off at runtime.
+
+config RSBAC_SWITCH_ACL
+	bool 'Switch ACL policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_ACL
+	---help---
+	  Select to switch ACL module on and off at runtime.
+
+config RSBAC_SWITCH_MAC
+	bool 'Switch MAC policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_MAC
+	---help---
+	  Select to switch MAC module on and off at runtime.
+
+config RSBAC_SWITCH_PAX
+	bool 'Switch PAX policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_PAX
+	---help---
+	  Select to switch PAX module on and off at runtime.
+
+config RSBAC_SWITCH_DAZ
+	bool 'Switch DAZ policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_DAZ
+	---help---
+	  Select to switch DAZ module on and off at runtime.
+
+config RSBAC_SWITCH_CAP
+	bool 'Switch CAP policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_CAP
+	---help---
+	  Select to switch CAP module on and off at runtime.
+
+config RSBAC_SWITCH_JAIL
+	bool 'Switch JAIL policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_JAIL
+	---help---
+	  Select to switch JAIL module on and off at runtime.
+
+config RSBAC_SWITCH_RES
+	bool 'Switch RES policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_RES
+	---help---
+	  Select to switch RES module on and off at runtime.
+
+config RSBAC_SWITCH_FF
+	bool 'Switch FF policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_FF
+	---help---
+	  Select to switch FF module on and off at runtime.
+
+config RSBAC_SWITCH_PM
+	bool 'Switch PM policy'
+	depends on RSBAC_SWITCH
+	depends on RSBAC_PM
+	---help---
+	  Select to switch PM module on and off at runtime.
+endmenu
+
+menu 'Logging'
+	depends on RSBAC
+
+config RSBAC_IND_LOG
+	bool 'Individual file/dir/dev object logging'
+	default y
+	---help---
+	  Enable individual log levels for every request type for every file,
+	  dir and device. Log levels are none, denied requests, full, request
+	  based. Default value is request based for all request types.
+
+	  If this option is off, only general log levels for requests are used
+	  (same as individual logging for all objects set to request based).
+
+config RSBAC_IND_USER_LOG
+	bool 'Individual user logging'
+	default y
+	---help---
+	  When enabled, you can specify for every single user, which request
+	  type(s) will always be logged.
+
+config RSBAC_IND_PROG_LOG
+	bool 'Individual program logging'
+	default y
+	---help---
+	  When enabled, you can specify for every single program file, which
+	  request type(s) will always be logged.
+
+config RSBAC_LOG_PROGRAM_FILE
+	bool 'Log program file'
+	default y
+	---help---
+	  Enable this option to get the full program file path logged together
+	  with the process name.
+
+config RSBAC_LOG_FULL_PATH
+	bool 'Log full path'
+	default y
+	---help---
+	  If this is turned on, logging messages for file and dir targets will
+	  contain the full path. This makes the log significantly longer and
+	  takes some extra CPU time, but also increases log usability.
+
+config RSBAC_MAX_PATH_LEN
+	int 'Maximum path length (256 - 2000)'
+	default 512
+	depends on RSBAC_LOG_FULL_PATH
+	---help---
+	  If the full path is longer than CONFIG_RSBAC_MAX_PATH_LEN, the 
+	  leading dirnames will be left out until it fits. The bigger this
+	  value, the more memory will be allocated in the logging routine.
+
+config RSBAC_LOG_PSEUDO
+	bool 'Pseudonymous logging support'
+	default n
+	---help---
+	  Enable to get pseudo values for users honoured in all request logging
+	  entries. If a pseudo value is not 0, it is logged instead of the uid.
+
+config RSBAC_LOG_PSEUDO_FS
+	bool 'Pseudonymize filesystem objects'
+	default n
+	        depends on RSBAC_LOG_PSEUDO
+	---help---
+	  If enabled, the logging code exchanges filesystem object names with
+	  their owner's pseudo, if the pseudo value is not 0 and the parent
+	  object has another owner.
+
+config RSBAC_SYSLOG_RATE
+	bool 'Syslog rate limit'
+	default y
+	---help---
+	  Enable the limiting of the number of log message lines sent to syslog
+	  per second.
+
+config RSBAC_SYSLOG_RATE_DEF
+	int 'Default allowed message lines per second'
+	depends on RSBAC_SYSLOG_RATE
+	default 1000
+	---help---
+	  Number of allowed syslog message lines per second. This value can be
+	  changed with kernel parameter rsbac_syslog_rate=<n> or at runtime via
+	  the proc interface.
+
+	  Default value is 1000.
+
+config RSBAC_RMSG
+	bool 'RSBAC own logging facility'
+	default y
+	---help---
+	  Add logging of requests with extra facility, which is basically a
+	  clone of printk/sys_syslog. If proc is supported, a file rmsg appears
+	  in rsbac-info and can be used like kmsg, e.g. with a patched klogd,
+	  cat or tail -f.
+	  This file is protected by RSBAC with object type SCD/rsbac_log.
+	  A new syscall sys_rsbac_log, similar to sys_syslog, also gives access
+	  to logging stuff.
+
+config RSBAC_RMSG_MAXENTRIES
+	int 'Maximum number of messages in the log buffer'
+	depends on RSBAC_RMSG
+	default 200
+	---help---
+	  Number of allowed messages in the RSBAC log buffer. Each message
+	  takes from 32 to 2048 bytes of memory.
+
+	  Default value is 200.
+
+config RSBAC_RMSG_NOSYSLOG
+	bool 'Allow to disable logging to syslog'
+	default y
+	depends on RSBAC_RMSG
+	---help---
+	  When on, you can temporarily disable logging to syslog with kernel
+	  parameter rsbac_nosyslog or via /proc/rsbac-info/debug. Useful for
+	  initial configuration on system installation or if you need a clean
+	  separation.
+
+	  If unsure, say Y.
+
+config RSBAC_LOG_REMOTE
+	bool 'Log to remote UDP network socket'
+	depends on RSBAC_RMSG
+	---help---
+	  If enabled, copies of every message in the RSBAC log facility will be
+	  sent to a remote system over network.
+
+if RSBAC_LOG_REMOTE=y
+
+config RSBAC_LOG_REMOTE_TCP
+	bool 'Use TCP for remote logging'
+	depends on RSBAC_RMSG
+	---help---
+	  If enabled, use more reliable TCP protocol to transfer logs.
+
+config RSBAC_LOG_REMOTE_MAXENTRIES
+	int 'Maximum number of messages in the remote log buffer'
+	depends on RSBAC_RMSG
+	default 200
+	---help---
+	  Number of allowed messages in the RSBAC remote log buffer. Each
+	  message takes from 32 to 2048 bytes of memory.
+
+	  Default value is 200.
+
+#config RSBAC_LOG_REMOTE_SYNC
+#	bool 'Immediate remote logging'
+
+config RSBAC_LOG_INTERVAL
+	int 'Logging interval in timer ticks'
+	default 100
+#	depends on RSBAC_LOG_REMOTE_SYNC=n
+
+config RSBAC_LOG_LOCAL_ADDR
+	string 'Local UDP address'
+	default "0.0.0.0"
+
+config RSBAC_LOG_LOCAL_PORT
+	int 'Local UDP port'
+	default 0
+
+config RSBAC_LOG_REMOTE_ADDR
+	string 'Remote UDP address'
+	default "0.0.0.0"
+
+config RSBAC_LOG_REMOTE_PORT
+	int 'Remote UDP port'
+	default 514
+
+endif
+
+endmenu
+
+config RSBAC_SYM_REDIR
+	bool 'RSBAC symlink redirection'
+	depends on RSBAC
+	---help---
+	  This feature optionally changes the contents of a symlink, based on
+	  the owner ID, the current MAC security level or the current RC role
+	  ID of the process accessing it.
+
+	  NOTE: For technical reasons, all numeric characters at the end of the
+	        original symlink contents will be replaced, not appended to.
+	        This can be used to e.g. get the uid itself as final name and
+	        the parent dir (or nothing...), if redirection is off.
+
+if RSBAC_SYM_REDIR
+
+config RSBAC_SYM_REDIR_REMOTE_IP
+	bool 'Add remote IP address'
+	depends on RSBAC_NET_OBJ
+	---help---
+	  With this option enabled, every read from a symlink, which has a
+	  symlink_add_remote_ip value > 0, gets this number of bytes added
+	  in dot notation, e.g. 192.168.0 with value 3.
+
+	  This option is e.g. useful, if you want to provide different user
+	  shells, depending on the origin of a connection:
+	  Set user shell to /bin/linkshell. Make this a symlink to
+	  /bin/usershell-, provide /bin/usershell-192.168.0 for users from
+	  that network and /bin/usershell-0.0.0 for local users.
+
+	  As a side effect, users connecting from other networks have no
+	  valid shell at all.
+
+config RSBAC_SYM_REDIR_UID
+	bool 'Add user ID number'
+	---help---
+	  With this option enabled, every read from a symlink, which has the
+	  symlink_add_uid flag set, gets the caller uid added in decimal
+	  notation.
+
+	  This feature can e.g. be used to setup individual /tmp dirs for all
+	  users, as root call:
+	  
+	  cd /
+	  mkdir tmpdirs && chmod 777 tmpdirs && chmod o+t tmpdirs
+	  # stay compatible, if redirection is off, by reusing old /tmp
+	  mv tmp tmpdirs
+	  ln -s tmpdirs/tmp tmp
+	  mkdir tmpdirs/tmp0 ; chmod 700 tmpdirs/tmp0
+	  echo 'mkdir /tmpdirs/tmp$UID && chmod 700 /tmpdirs/tmp$UID' \
+	    >>/etc/profile
+
+	  As user with modify right for general attributes (e.g. user 400), set
+	  symlink_add_uid to on for /tmp:
+	  attr_set_file_dir SYMLINK /tmp symlink_add_uid 1
+
+	  From now on, root accesses to /tmp show /tmpdirs/tmp0, user 400
+	  accesses show /tmpdir/tmp400, etc. It is of course advisable to
+	  protect the individual dirs against root.
+
+config RSBAC_SYM_REDIR_MAC
+	bool 'Add MAC current security level'
+	depends on RSBAC_MAC
+	---help---
+	  With this option enabled, every read from a symlink, which has the
+	  symlink_add_mac_level flag set, gets the calling process's current
+	  MAC security level added in decimal notation.
+
+	  It can be used to e.g. provide separate /tmp dirs for all MAC levels
+	  and thus avoid unwanted flow of information.
+	  See 'Add user ID number' help to get an idea of how to do this.
+
+config RSBAC_SYM_REDIR_MAC_CAT
+	bool 'Also add MAC current category vector'
+	depends on RSBAC_SYM_REDIR_MAC
+	---help---
+	  If enabled, the redirected symlink contents will not only contain the
+	  process current MAC security level, but also its current category set
+	  as the usual string of 0 and 1, separated by a colon.
+
+	  WARNING: This will result in more possible values than your
+	           filesystem can handle names and inodes, so please be
+		   careful.
+
+config RSBAC_SYM_REDIR_RC
+	bool 'Add RC role number'
+	depends on RSBAC_SYM_REDIR && RSBAC_RC
+	---help---
+	  With this option enabled, every read from a symlink, which has the
+	  symlink_add_rc_role flag set, gets the calling process's current RC
+	  role ID added in decimal notation.
+
+	  It can be used to e.g. provide individual /tmp dirs for all roles.
+	  See 'Add user ID number' help to get an idea of how to do this.
+endif
+
+config RSBAC_ALLOW_DAC_DISABLE
+	bool 'Allow disabling of Linux filesystem access control'
+	depends on RSBAC
+	---help---
+	  Turn this on to get access to Linux DAC disabling switches.
+
+if RSBAC_ALLOW_DAC_DISABLE
+
+config RSBAC_ALLOW_DAC_DISABLE_FULL
+	bool 'Allow full disabling (DANGEROUS!)'
+	---help---
+	  With this option you can allow turning off Linux discretionary access
+	  control for all filesystem objects, except where the filesystem
+	  provides its own access control function.
+
+	  In most cases it should be sufficient to set the DAC_OVERRIDE Linux
+	  capability with the DAC module for single users or programs instead.
+
+	  To disable Linux access control, use the kernel param
+	  rsbac_dac_disable, syscall sys_rsbac_switch (utility switch_module)
+	  for switch target DAC_DISABLE or
+	  
+	       echo debug dac_disable 1 >/proc/rsbac-info/debug.
+
+	  For security reasons, Linux access control is still enabled by
+	  default, even with this option active!
+
+	  DANGER! Do not use, unless you really know what you are doing!
+
+config RSBAC_ALLOW_DAC_DISABLE_PART
+	bool 'Allow partial (dir tree based) disabling'
+	---help---
+	  If enabled, you can turn off Linux discretionary access control for
+	  individual filesystem objects and directory trees.
+	  
+	  This option is useful, if you want to rely on RSBAC access control
+	  instead of standard Linux style, without giving full access in case
+	  RSBAC is not running.
+	  
+	  NOTE: You can use the linux2acl command line tool to get your old
+	        Linux rights converted to ACL settings.
+endif
+
+menu 'Other RSBAC options'
+	depends on RSBAC
+
+config RSBAC_SECDEL
+	bool 'Support secure_delete'
+	---help---
+	  This option enables secure deletion and truncation of all files.
+	  The decision whether to overwrite is dispatched to all modules,
+	  if one says yes, the file is overwritten. Currently only FF and PM
+	  support this.
+
+	  FF returns yes, if file is marked with ff_flag secure_delete. This
+	  flag can, as usual, be inherited from parent dir, if flag
+	  add_inherited is set (default, if option 'Inherit as default' has
+	  been chosen).
+
+	  PM returns yes for all files marked as personal data and no
+	  otherwise.
+
+	  Secure deletion and truncation is currently done by overwriting once
+	  with zeros, because this is enough against hackers and standard level
+	  analysers. Against well-fed organisations who got hold of your disk
+	  there is no protection anyway.
+
+	  This mechanism is currently only supported for ext2, ext3, minix,
+	  msdos and vfat, but could be extended to other file systems, if
+	  needed.
+
+config RSBAC_RW
+	bool 'Intercept sys_read and sys_write'
+	default y
+	---help---
+	  If enabled, the syscalls sys_read() and sys_write() for reading from
+	  and writing to opened files, fifos and devices are also intercepted.
+	  This slows down the system a bit, but allows more control of object
+	  accesses to adapt to configuration changes.
+
+	  Please note that the interception for sockets only takes place, if
+	  net support and socket read/write interception are also enabled
+	  (CONFIG_RSBAC_NET and CONFIG_RSBAC_NET_RW).
+
+config RSBAC_IPC_SEM
+	bool 'Intercept Semaphore IPC operations'
+	default y
+	---help---
+	  If on, System V IPC Semaphores are also protected. As there is no
+	  direct data flow over semaphores, they can mostly be misused for
+	  denial of service attacks. Turn on for special needs, keep off
+	  otherwise.
+
+config RSBAC_DAC_OWNER
+	bool 'Control DAC process owner (seteuid, setfsuid)'
+	---help---
+	  Usually, only set*uid calls, which affect the real user ID used for
+	  RSBAC decisions, issue a decision request CHANGE_OWNER for processes.
+	  With this option, changes to the effective (CHANGE_DAC_EFF_OWNER) and
+	  the filesystem (CHANGE_DAC_FS_OWNER) owner are also controlled.
+
+	  Please also see AUTH option 'AUTH support for effective and fs owner
+	  control'.
+
+config RSBAC_DAC_GROUP
+	bool 'Control DAC process group (setegid, setfsgid)'
+	---help---
+	  Usually, set*gid calls issue only the decision request CHANGE_GROUP
+	  for changes to the process group.
+	  With this option, changes to the effective (CHANGE_DAC_EFF_GROUP) and
+	  the filesystem (CHANGE_DAC_FS_GROUP) group are also controlled.
+
+	  Please also see AUTH option 'AUTH support for effective and fs group
+	  control'.
+
+
+config RSBAC_PROC_HIDE
+	bool 'Hide processes in /proc'
+	---help---
+	  If enabled, a process is also hidden in /proc listing, if the reading
+	  process has no GET_STATUS_DATA right to it.
+	  This option adds a significant amount of requests, when reading
+	  /proc, so it is off by default.
+
+config RSBAC_FSOBJ_HIDE
+	bool 'Hide filesystem objects'
+	depends on EXPERIMENTAL
+	---help---
+	  If enabled, every filesystem object (file, dir, named pipe,
+          unix socket) will be completely hidden from every process that
+          has no SEARCH right to it.
+
+	  WARNING! You need to remove all rights to that object you are
+          trying to hide to make it fully protected! Otherwise
+          overwriting may be possible by a process that knows this
+          object's name!
+
+config RSBAC_FREEZE
+	bool 'Support freezing of RSBAC configuration'
+	default y
+	---help---
+	  If enabled, the kernel parameter rsbac_freeze disables all
+	  administrative system calls, which change settings.
+
+config RSBAC_FREEZE_UM
+	bool 'Also freeze User Management'
+	        depends on RSBAC_FREEZE && RSBAC_UM
+	---help---
+	  If enabled, the RSBAC User Management gets frozen, too.
+
+config RSBAC_SYSLOG
+	bool 'RSBAC check sys_syslog'
+	---help---
+	  If enabled, the syscall sys_syslog() for system log is also checked,
+	  leading to less performance for a minor security issue.
+
+config RSBAC_IOCTL
+	bool 'Generic check in sys_ioctl'
+	default y
+	---help---
+	  Enable this switch to get all calls to sys_ioctl for DEV and NETOBJ
+	  targets checked by RSBAC. In any case, some important sys_ioctl calls
+	  will also be checked as GET_STATUS_DATA or MODIFY_SYSTEM_DATA
+	  requests.
+
+	  This interception produces some overhead on desktop systems, so it
+	  should be considered to turn it off on such systems.
+
+config RSBAC_USER_CHOWN
+	bool 'Check CHANGE_OWNER on PROCESS against USER target'
+	default n
+	---help---
+	  With this option, each CHANGE_OWNER request on PROCESS targets
+	  creates an additional CHANGE_OWNER request on the new owner as
+	  USER target.
+
+	  The additional check allows modules to control user changes
+	  depending on the current state of the process attributes,
+	  e.g. current role or owner.
+
+config RSBAC_DAT_VISIBLE
+	bool 'Make RSBAC data files visible'
+	---help---
+	  By default, the rsbac.dat directories containing the list data
+	  backups are unreadable for any user. Unfortunately, some programs
+	  must be able to read all directories, e.g. the quota tools.
+
+	  This option enables read and status access to the rsbac.dat
+	  directories, but the files themselves are kept unreadable.
+
+config RSBAC_NO_DECISION_ON_NETMOUNT
+	bool 'No decision on net mounts'
+	---help---
+	  If this option is turned on, no decisions are made and no attributes
+	  are set for all accesses to files and dirs on network mounts. For
+	  these targets, RSBAC behaves like a maintenance kernel. So even 
+	  Dazuko is turned off. Attribute saving or restoring is not done
+	  anyway.
+
+	  Use this option, if you cannot access your network files properly,
+	  and keep it off otherwise.
+
+config RSBAC_ENFORCE_CLOSE 
+	bool 'Enforce denied close access'
+	---help---
+	  By default, RSBAC only logs denied CLOSE access on filesystem
+	  objects and still performs the close, because many broken
+	  programs rely on close to always succeed. With this switch on,
+	  RSBAC really returns -EPERM and keeps the object opened.
+
+config RSBAC_USER_MOD_IOPERM
+	bool 'X support (normal user MODIFY_PERM access to ST_ioports)'
+	---help---
+	  Normally, MODIFY_PERMISSIONS_DATA access to SCD target ST_ioports is
+	  not granted for normal users, because this would allow direct
+	  hardware access. Unfortunately, X servers depend on this. So if you
+	  need X on your system, enable this, otherwise keep it off.
+
+	  This switch enables the following changes:
+	    - MAC, FC, SIM and AUTH hardwired policies are adjusted to allow
+	      this access type for every user.
+	    - RC and ACL default settings are adjusted accordingly, but
+	      existing or later settings are not affected.
+
+config RSBAC_FAKE_ROOT_UID
+	bool 'Faked root uid'
+	---help---
+	  With this turned on, programs can optionally get uid 0 returned from
+	  every getuid() and/or geteuid() call.
+
+	  Some programs check, whether they really run as root, although they
+	  already have sufficient rights to do their jobs. This forces users
+	  to keep them running under the dangerous root account.
+
+
+config RSBAC_XSTATS
+	bool 'RSBAC extra statistics'
+	default y
+	depends on RSBAC_PROC
+	---help---
+	  If enabled, extended RSBAC statistics are collected. Currently these
+	  are mostly count matrices of adf_request and adf_set_attr calls by
+	  target type and request type. These matrices give a detailed overview
+	  of the request and thus the system call behaviour.
+
+	  Also, there is an access count for calls to data structures by target
+	  type.
+
+	  The extra data can be read from another proc file called xstats.
+endmenu
+
+endif
+
+endif

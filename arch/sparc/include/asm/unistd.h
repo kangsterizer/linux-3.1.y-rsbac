@@ -407,7 +407,12 @@
 #define __NR_sendmmsg		336
 #define __NR_setns		337
 
+#ifdef CONFIG_RSBAC
+#define __NR_rsbac              338
+#define NR_SYSCALLS		339
+#else
 #define NR_syscalls		338
+#endif
 
 #ifdef __32bit_syscall_numbers__
 /* Sparc 32-bit only has the "setresuid32", "getresuid32" variants,

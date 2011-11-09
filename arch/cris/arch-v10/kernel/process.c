@@ -93,6 +93,10 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	struct pt_regs regs;
 
+#ifdef CONFIG_RSBAC
+	int rsbac_retval;
+#endif
+
 	memset(&regs, 0, sizeof(regs));
 
         /* Don't use r10 since that is set to 0 in copy_thread */
@@ -102,7 +106,12 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.dccr = 1 << I_DCCR_BITNR;
 
 	/* Ok, create the new process.. */
-        return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+#ifdef CONFIG_RSBAC
+	rsbac_retval = do_fork(flags | CLONE_VM | CLONE_UNTRACED | CLONE_KTHREAD, 0, &regs, 0, NULL, NULL);
+	return rsbac_retval;
+#else
+	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+#endif
 }
 
 /* setup the child's kernel stack with a pt_regs and switch_stack on it.

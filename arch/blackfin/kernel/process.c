@@ -127,8 +127,13 @@ pid_t kernel_thread(int (*fn) (void *), void *arg, unsigned long flags)
 	   mode.  */
 	regs.ipend = 0x8002;
 	__asm__ __volatile__("%0 = syscfg;":"=da"(regs.syscfg):);
-	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL,
+#ifdef CONFIG_RSBAC
+	return do_fork(flags | CLONE_VM | CLONE_UNTRACED | CLONE_KTHREAD, 0, &regs, 0, NULL,
 		       NULL);
+#else
+	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL,
+                       NULL);
+#endif
 }
 EXPORT_SYMBOL(kernel_thread);
 

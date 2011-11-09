@@ -133,7 +133,11 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 
 	fs = get_fs();
 	set_fs (KERNEL_DS);
+#ifdef CONFIG_RSBAC
+	clone_arg = flags | CLONE_VM | CLONE_KTHREAD;
+#else
 	clone_arg = flags | CLONE_VM;
+#endif
 	__asm__("mov.l sp,er3\n\t"
 		"sub.l er2,er2\n\t"
 		"mov.l %2,er1\n\t"
@@ -152,6 +156,12 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 		:"i"(__NR_clone),"g"(clone_arg),"g"(fn),"g"(arg),"i"(__NR_exit)
 		:"er0","er1","er2","er3");
 	set_fs (fs);
+
+#ifdef CONFIG_RSBAC
+	if (retval > 0)
+		rsbac_kthread_notify(find_pid_ns(retval, &init_pid_ns));
+#endif
+
 	return retval;
 }
 

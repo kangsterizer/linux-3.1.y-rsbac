@@ -35,6 +35,8 @@
 
 #include "entry.h"
 
+#include <rsbac/hooks.h>
+
 /*
  * Bits in the PSR that we allow ptrace() to change:
  *	be, up, ac, mfl, mfh (the user mask; five bits total)

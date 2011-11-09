@@ -681,6 +681,13 @@ export KBUILD_IMAGE ?= vmlinux
 export	INSTALL_PATH ?= /boot
 
 #
+
+# Add RSBAC version
+ifeq ($(CONFIG_RSBAC),y)
+EXTRAVERSION:=$(EXTRAVERSION)-rsbac
+core-y		+= rsbac/
+endif
+
 # INSTALL_MOD_PATH specifies a prefix to MODLIB for module directory
 # relocations required by build roots.  This is not defined in the
 # makefile but the argument can be passed to make if needed.

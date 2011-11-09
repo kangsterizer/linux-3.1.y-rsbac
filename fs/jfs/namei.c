@@ -33,6 +33,8 @@
 #include "jfs_acl.h"
 #include "jfs_debug.h"
 
+#include <rsbac/hooks.h>
+
 /*
  * forward references
  */
@@ -494,6 +496,12 @@ static int jfs_unlink(struct inode *dip, struct dentry *dentry)
 
 	if ((rc = get_UCSname(&dname, dentry)))
 		goto out;
+
+	/* RSBAC jfs_unlink */
+#ifdef CONFIG_RSBAC_SECDEL
+	if(dentry->d_inode->i_nlink == 1)
+		rsbac_sec_del(dentry, TRUE);
+#endif
 
 	IWRITE_LOCK(ip, RDWRLOCK_NORMAL);
 
@@ -1144,6 +1152,10 @@ static int jfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 			goto out3;
 		}
 	} else if (new_ip) {
+#ifdef CONFIG_RSBAC_SECDEL
+		if (new_ip->i_nlink == 1)
+			rsbac_sec_del(new_dentry, TRUE);
+#endif
 		IWRITE_LOCK(new_ip, RDWRLOCK_NORMAL);
 		/* Init inode for quota operations. */
 		dquot_initialize(new_ip);

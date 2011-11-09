@@ -61,6 +61,8 @@
 #include <asm/uaccess.h>
 #include <asm/processor.h>
 
+#include <rsbac/hooks.h>
+
 #ifdef CONFIG_X86
 #include <asm/nmi.h>
 #include <asm/stacktrace.h>
@@ -1710,10 +1712,32 @@ int sysctl_perm(struct ctl_table_root *root, struct ctl_table *table, int op)
 {
 	int mode;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (root->permissions)
 		mode = root->permissions(root, current->nsproxy, table);
 	else
 		mode = table->mode;
+
+#ifdef CONFIG_RSBAC
+	if (op & 002) { /* write access */
+		rsbac_target_id.scd = ST_sysctl;
+		rsbac_attribute_value.mode = mode;
+		rsbac_pr_debug(aef, "[sysctl() etc.]: calling ADF\n");
+		if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+					task_pid(current),
+					T_SCD,
+					rsbac_target_id,
+					A_mode,
+					rsbac_attribute_value))
+		{
+			return -EPERM;
+		}
+	}
+#endif
 
 	return test_perm(mode, op);
 }

@@ -85,6 +85,7 @@
 #include <asm/pgtable.h>
 #include <asm/processor.h>
 #include "internal.h"
+#include <rsbac/hooks.h>
 
 static inline void task_name(struct seq_file *m, struct task_struct *p)
 {
@@ -340,7 +341,31 @@ static void task_cpus_allowed(struct seq_file *m, struct task_struct *task)
 int proc_pid_status(struct seq_file *m, struct pid_namespace *ns,
 			struct pid *pid, struct task_struct *task)
 {
-	struct mm_struct *mm = get_task_mm(task);
+	struct mm_struct *mm;
+
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rcu_read_lock();
+	rsbac_target_id.process = task_pid(task);
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_GET_STATUS_DATA,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		rcu_read_unlock();
+		return -EPERM;
+	}
+	rcu_read_unlock();
+#endif
+
+	mm = get_task_mm(task);
 
 	task_name(m, task);
 	task_state(m, ns, pid, task);
@@ -377,6 +402,28 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 	unsigned long rsslim = 0;
 	char tcomm[sizeof(task->comm)];
 	unsigned long flags;
+
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rcu_read_lock();
+	rsbac_target_id.process = task_pid(task);
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_GET_STATUS_DATA,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))	{
+		rcu_read_unlock();
+		return -EPERM;
+	}
+	rcu_read_unlock();
+#endif
 
 	state = *get_task_state(task);
 	vsize = eip = esp = 0;
@@ -532,9 +579,32 @@ int proc_tgid_stat(struct seq_file *m, struct pid_namespace *ns,
 int proc_pid_statm(struct seq_file *m, struct pid_namespace *ns,
 			struct pid *pid, struct task_struct *task)
 {
-	unsigned long size = 0, resident = 0, shared = 0, text = 0, data = 0;
-	struct mm_struct *mm = get_task_mm(task);
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+	unsigned long size = 0, resident = 0, shared = 0, text = 0, data = 0;
+	struct mm_struct *mm;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rcu_read_lock();
+	rsbac_target_id.process = task_pid(task);
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_GET_STATUS_DATA,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		rcu_read_unlock();
+		return -EPERM;
+	}
+	rcu_read_unlock();
+#endif
+
+	mm = get_task_mm(task);
 	if (mm) {
 		size = task_statm(mm, &shared, &text, &data, &resident);
 		mmput(mm);

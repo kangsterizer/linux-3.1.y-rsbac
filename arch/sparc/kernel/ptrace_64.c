@@ -38,6 +38,8 @@
 #include <asm/cpudata.h>
 #include <asm/cacheflush.h>
 
+#include <rsbac/hooks.h>
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/syscalls.h>
 
@@ -870,8 +872,31 @@ long compat_arch_ptrace(struct task_struct *child, compat_long_t request,
 	unsigned long data = cdata;
 	int ret;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	pregs = (struct pt_regs32 __user *) addr;
 	fps = (struct compat_fps __user *) addr;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rcu_read_lock();
+	rsbac_target_id.process = task_pid(child);
+	rsbac_attribute_value.trace_request = request;
+	if (!rsbac_adf_request(R_TRACE,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_trace_request,
+				rsbac_attribute_value))
+	{
+		rcu_read_unlock();
+		return -EPERM;
+	}
+	rcu_read_unlock();
+#endif
 
 	switch (request) {
 	case PTRACE_PEEKUSR:

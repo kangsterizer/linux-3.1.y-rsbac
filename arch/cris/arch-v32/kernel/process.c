@@ -116,7 +116,11 @@ kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.ccs = 1 << (I_CCS_BITNR + CCS_SHIFT);
 
 	/* Create the new process. */
-        return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+#ifdef CONFIG_RSBAC
+	return do_fork(flags | CLONE_VM | CLONE_UNTRACED | CLONE_KTHREAD, 0, &regs, 0, NULL, NULL);
+#else
+	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0, &regs, 0, NULL, NULL);
+#endif
 }
 
 /*

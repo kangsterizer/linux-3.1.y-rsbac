@@ -1758,6 +1758,9 @@ sys_call_table:
 	data8 sys_timerfd_create		// 1310
 	data8 sys_timerfd_settime
 	data8 sys_timerfd_gettime
+#ifdef CONFIG_RSBAC
+	data8 sys_rsbac
+#endif
 	data8 sys_signalfd4
 	data8 sys_eventfd2
 	data8 sys_epoll_create1			// 1315

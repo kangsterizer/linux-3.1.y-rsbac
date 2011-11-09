@@ -41,6 +41,8 @@
 #include <asm/system.h>
 #include <asm/sections.h>
 
+#include <rsbac/hooks.h>
+
 /* Per cpu memory for storing cpu states in case of system crash. */
 note_buf_t __percpu *crash_notes;
 
@@ -945,9 +947,29 @@ SYSCALL_DEFINE4(kexec_load, unsigned long, entry, unsigned long, nr_segments,
 	struct kimage **dest_image, *image;
 	int result;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t	rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	/* We only trust the superuser with rebooting the system. */
 	if (!capable(CAP_SYS_BOOT))
 		return -EPERM;
+
+#ifdef CONFIG_RSBAC
+	rsbac_target_id.scd = ST_kexec;
+	rsbac_attribute_value.dummy = 0;
+	rsbac_pr_debug(aef, "calling ADF\n");
+	if(!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	/*
 	 * Verify we have a legal set of flags

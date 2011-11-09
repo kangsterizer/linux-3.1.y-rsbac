@@ -424,7 +424,11 @@ sys_call_table:
 	PTR	sys_madvise
 	PTR	sys_getdents64
 	PTR	compat_sys_fcntl64		/* 4220 */
+#ifdef CONFIG_RSBAC
+	PTR	sys_rsbac			/* Security */
+#else
 	PTR	sys_ni_syscall
+#endif
 	PTR	sys_gettid
 	PTR	sys32_readahead
 	PTR	sys_setxattr

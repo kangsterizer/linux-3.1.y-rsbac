@@ -57,6 +57,12 @@ asmlinkage extern void ret_from_fork(void);
 DEFINE_PER_CPU(unsigned long, old_rsp);
 static DEFINE_PER_CPU(unsigned char, is_idle);
 
+#ifdef CONFIG_RSBAC
+unsigned long kernel_thread_flags = CLONE_VM | CLONE_UNTRACED | CLONE_KTHREAD;
+#else
+unsigned long kernel_thread_flags = CLONE_VM | CLONE_UNTRACED;
+#endif
+
 static ATOMIC_NOTIFIER_HEAD(idle_notifier);
 
 void idle_notifier_register(struct notifier_block *n)

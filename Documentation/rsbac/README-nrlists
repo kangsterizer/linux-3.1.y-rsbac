@@ -1,0 +1,28 @@
+RSBAC README-nrlists
+--------------------
+
+For large systems (very many files per partition) you should increase
+RSBAC_NR_FD_LISTS in include/rsbac/aci_data_structures.h before compiling.
+
+You should earnestly consider increasing, if you get warning messages like
+"write_fd_list(): list n too large (m bytes), calling partial_write_fd_list()!"
+(this does not lead to data loss though - it only decreases stability a
+bit). This should not happen any longer though - if it does, please send a
+note to RSBAC mailing list containing your /proc/rsbac-info/stats output and
+the output of free at the time when the messages appear for examination.
+
+CAUTION:
+- When restarting with a larger number of lists for the first time, you *must*
+  use the kernel parameter rsbac_change_nr! Only then old attributes are
+  allowed to be sorted into the now correct lists, otherwise they get lost and
+  that's it.
+- Please remember mounting rw all partitions used by RSBAC so far, while
+  rsbac_change_nr is still active.
+- There is definately no way back to a smaller number. All following RSBAC
+  versions must be set to the same value, and rebooting with an older kernel
+  can result in unnoticable attribute losses.
+
+To test this feature, you can use rsbac_debug_no_write. This prevents
+attribute saving and thus attribute loss from previous runs. Those
+partitions that are not mounted rw at boot time can be tested by mounting
+read-only.

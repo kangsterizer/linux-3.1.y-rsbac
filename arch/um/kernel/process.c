@@ -74,7 +74,11 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 
 	current->thread.request.u.thread.proc = fn;
 	current->thread.request.u.thread.arg = arg;
+#ifdef CONFIG_RSBAC
+	pid = do_fork(CLONE_VM | CLONE_UNTRACED | CLONE_KTHREAD | flags, 0,
+#else
 	pid = do_fork(CLONE_VM | CLONE_UNTRACED | flags, 0,
+#endif
 		      &current->thread.regs, 0, NULL, NULL);
 	return pid;
 }

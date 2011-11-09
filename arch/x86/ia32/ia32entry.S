@@ -726,7 +726,11 @@ ia32_sys_call_table:
 	.quad compat_sys_getdents64	/* 220 getdents64 */
 	.quad compat_sys_fcntl64	
 	.quad quiet_ni_syscall		/* tux */
-	.quad quiet_ni_syscall    	/* security */
+#ifdef CONFIG_RSBAC
+	.quad sys_rsbac         /* security */
+#else
+	.quad quiet_ni_syscall          /* security */
+#endif
 	.quad sys_gettid	
 	.quad sys32_readahead	/* 225 */
 	.quad sys_setxattr

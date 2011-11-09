@@ -1,0 +1,93 @@
+RSBAC README for the kernel parameters.
+---------------------------------------
+
+Also see: <http://rsbac.org/documentation/kernel_parameters>
+
+The RSBAC system accepts the following parameters:
+ - rsbac_debug_ds: Debug messages from the Data Structures component.
+ - rsbac_debug_aef: Debug messages from the enforcement component (AEF).
+ - rsbac_debug_no_adf: Set default log level value for all request
+   types to 0: Do not log.
+ - rsbac_debug_adf (default, so obsolete): Set default log level value for all
+   request types to 1: Logging messages
+   from the decision component (ADF) for all requests that were denied (highly
+   recommended for testing, even in normal use). If provided, pseudonyms of
+   users are used.
+ - rsbac_debug_adf_all: Set default log level value for all request types to 2:
+   Logging messages from the decision component (ADF) for all requests. If
+   provided, pseudonyms of users are used. Gives a real lot of logging stuff
+    - never try this, if checking of sys_syslog is turned on and log levels
+   have not yet been saved to keep them permanent...
+ - rsbac_debug_ds_pm: Debug messages from the Data Structures component,
+   on access to privacy model data.
+ - rsbac_debug_aef_pm: Debug messages for privacy model specific system
+   calls.
+ - rsbac_debug_adf_pm: Debug messages for access control in privacy module.
+ - rsbac_debug_pm: Sets rsbac_debug_ds_pm, rsbac_debug_aef_pm,
+   rsbac_debug_adf_pm (recommended for testing privacy model).
+ - rsbac_debug_adf_ms: Debug messages for access control in Malware Scan.
+ - rsbac_debug_ds_rc: Debug messages from the Data Structures component,
+   on access to Role Compatibility model data.
+ - rsbac_debug_aef_rc: Debug messages for Role Compatibility model specific
+   system calls.
+ - rsbac_debug_adf_rc: Debug messages for access control in RC module.
+ - rsbac_debug_rc: Sets rsbac_debug_ds_rc, rsbac_debug_aef_rc,
+   rsbac_debug_adf_rc.
+ - rsbac_debug_ds_auth: Debug messages from the Data Structures component,
+   on access to AUTH model data.
+ - rsbac_debug_aef_auth: Debug messages for AUTH model specific system calls.
+ - rsbac_debug_adf_auth: Debug messages for access control in AUTH module.
+ - rsbac_debug_auth: Sets rsbac_debug_ds_auth, rsbac_debug_aef_auth,
+   rsbac_debug_adf_auth.
+ - rsbac_debug_ds_acl: Debug messages from the Data Structures component,
+   on access to Access Control Lists (ACL) model data.
+ - rsbac_debug_aef_acl: Debug messages for ACL model specific
+   system calls.
+ - rsbac_debug_adf_acl: Debug messages for access control in ACL module.
+ - rsbac_debug_acl: Sets rsbac_debug_ds_acl, rsbac_debug_aef_acl,
+   rsbac_debug_adf_acl.
+ - rsbac_debug_all: Sets all debug options - in fact turns on a huge amount
+   of logging. Beware of a fast growing system log. Hardly ever recommended.
+ - rsbac_debug_no_write: Turn writing to disk off for this
+   single boot time. For testing.
+ - rsbac_debug_auto: Debug messages from auto-write / rsbacd. Recommended
+   for a good disk saving overview.
+ - rsbac_debug_write: Debug messages from all attribute writing related
+   procedures.
+ - rsbac_no_defaults: suppress creation of default settings, useful for
+   restore from existing backup. Warning: An unconfigured system will only
+   come up in softmode or maint mode, and softmode will produce loads of
+   logging (see rsbac_nosyslog option...).
+ - rsbac_auth_enable_login: Sets auth_may_setuid for /bin/login, if AUTH
+   module is on. A good emergency helper, if you cannot login anymore.
+ - rsbac_softmode (only, if enabled on kernel config): switch to softmode
+ - rsbac_softmode_once (only, if enabled on kernel config): switch to softmode
+   and disallow to switch it on again later
+ - rsbac_softmode_never (only, if softmode enabled on kernel config):
+   disallow to switch softmode on during this runtime
+ - rsbac_softmode_<mod> (module name in lowercase, e.g. rc, only if enabled):
+   switch individual model softmode to on
+ - rsbac_freeze (only, if enabled in kernel config): Disallow RSBAC
+   administration for this runtime.
+ - rsbac_dac_disable (only, if enabled in kernel config): disable Linux DAC
+ - rsbac_nosyslog: do not log to syslog for this boot time
+ - rsbac_no_init_delay: disable delayed init for this single boot (if
+   init delay is enabled in kernel config)
+ - rsbac_delayed_root=major[:minor]: initialize, when this device gets
+   mounted. Omit minor or set to 00 to match all devices with this major
+   number. Delayed init must be enabled in kernel config.
+ - rsbac_auth_learn (only, if enabled in kernel config): enable AUTH
+   learning mode, where AUTH module adds all missing capabilities
+   automatically instead of denying the request.
+ - rsbac_acl_learn and rsbac_acl_learn_fd (only, if enabled in kernel
+   config): enable ACL learning mode for user rights to filesystem objects
+ - rsbac_log_remote_addr=a.b.c.d: Set remote logging address to a.b.c.d
+ - rsbac_log_remote_port=n: Set remote logging port to n. Remote logging
+   must be enabled in kernel config.
+ - rsbac_um_no_excl: Disable exlusive user management for this uptime.
+ - rsbac_daz_ttl=n: Set DAZ cache item ttl to n seconds for this boot.
+ - rsbac_cap_log_missing: Log all calls to capable() for caps, which are
+   not in the process set of effective Linux capabilities, i.e., failed
+   capable() checks.
+
+Last updated: 28/Jan/2005

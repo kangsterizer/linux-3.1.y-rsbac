@@ -310,8 +310,12 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.sr = (1 << 30);
 
 	/* Ok, create the new process.. */
+#ifdef CONFIG_RSBAC
+	return do_fork(flags | CLONE_VM | CLONE_UNTRACED | KERNEL_THREAD, 0,
+#else
 	return do_fork(flags | CLONE_VM | CLONE_UNTRACED, 0,
 		      &regs, 0, NULL, NULL);
+#endif
 }
 EXPORT_SYMBOL(kernel_thread);
 

@@ -456,7 +456,11 @@ einval:	li	v0, -ENOSYS
 	sys	sys_madvise		3
 	sys	sys_getdents64		3
 	sys	sys_fcntl64		3	/* 4220 */
+#ifdef CONFIG_RSBAC
+	sys	sys_rsbac		2	/* Security */
+#else
 	sys	sys_ni_syscall		0
+#endif
 	sys	sys_gettid		0
 	sys	sys_readahead		5
 	sys	sys_setxattr		5

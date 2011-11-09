@@ -50,6 +50,8 @@
 #include <linux/fiemap.h>
 #include <linux/slab.h>
 
+#include <rsbac/hooks.h>
+
 /*
  * Bring the timestamps in the XFS inode uptodate.
  *
@@ -339,6 +341,10 @@ xfs_vn_unlink(
 	struct xfs_name	name;
 	int		error;
 
+#ifdef CONFIG_RSBAC_SECDEL
+	if (dentry->d_inode->i_nlink == 1)
+		rsbac_sec_del(dentry, FALSE);
+#endif
 	xfs_dentry_to_name(&name, dentry);
 
 	error = -xfs_remove(XFS_I(dir), &name, XFS_I(dentry->d_inode));
@@ -400,9 +406,33 @@ xfs_vn_rename(
 	struct inode	*new_inode = ndentry->d_inode;
 	struct xfs_name	oname;
 	struct xfs_name	nname;
+#ifdef CONFIG_RSBAC_SECDEL
+	struct xfs_inode *cip;
+#endif
 
 	xfs_dentry_to_name(&oname, odentry);
 	xfs_dentry_to_name(&nname, ndentry);
+
+#ifdef CONFIG_RSBAC_SECDEL
+	/* RSBAC secure delete code. in the event of overwritting existing
+	 * file with sec_del flag set, its blocks will be deallocated so we
+	 * have to overwrite their content. since XFS does all the necessary
+	 * checks on the layer below linux VFS, operating on vnodes
+	 * i decided to implement my own set of checks here, so we can see
+	 * if the existing file is being overwritten.
+	 * inspired by ext2/3/4 and jfs code. michal@rsbac.org
+	 */
+
+	if (new_inode) {
+		if (new_inode->i_nlink == 1) {
+			if (!xfs_lookup(XFS_I(ndir), &nname, &cip, NULL)) {
+				IRELE(cip);
+				if(!S_ISDIR(new_inode->i_mode))
+					rsbac_sec_del(ndentry, TRUE);
+			}
+		}
+	}
+#endif
 
 	return -xfs_rename(XFS_I(odir), &oname, XFS_I(odentry->d_inode),
 			   XFS_I(ndir), &nname, new_inode ?

@@ -24,6 +24,8 @@
 
 #include "sysfs.h"
 
+#include <rsbac/hooks.h>
+
 /*
  * There's one sysfs_buffer for each open file and one
  * sysfs_open_dirent for each sysfs_dirent with one or more open
@@ -330,6 +332,11 @@ static int sysfs_open_file(struct inode *inode, struct file *file)
 	struct sysfs_buffer *buffer;
 	const struct sysfs_ops *ops;
 	int error = -EACCES;
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 
 	/* need attr_sd for attr and ops, its parent for kobj */
 	if (!sysfs_get_active(attr_sd))
@@ -351,6 +358,21 @@ static int sysfs_open_file(struct inode *inode, struct file *file)
 	if (file->f_mode & FMODE_WRITE) {
 		if (!(inode->i_mode & S_IWUGO) || !ops->store)
 			goto err_out;
+#ifdef CONFIG_RSBAC
+		rsbac_pr_debug(aef, "[sysfs_open_file()]: calling ADF\n");
+		rsbac_target_id.scd = ST_sysfs;
+		rsbac_attribute_value.dummy = 0;
+		if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+					task_pid(current),
+					T_SCD,
+					rsbac_target_id,
+					A_owner,
+					rsbac_attribute_value))
+		{
+			error = -EPERM;
+			goto err_out;
+		}
+#endif
 	}
 
 	/* File needs read support.
@@ -360,6 +382,22 @@ static int sysfs_open_file(struct inode *inode, struct file *file)
 	if (file->f_mode & FMODE_READ) {
 		if (!(inode->i_mode & S_IRUGO) || !ops->show)
 			goto err_out;
+
+#ifdef CONFIG_RSBAC
+		rsbac_pr_debug(aef, "[sysfs_open_file()]: calling ADF\n");
+		rsbac_target_id.scd = ST_sysfs;
+		rsbac_attribute_value.dummy = 0;
+		if (!rsbac_adf_request(R_GET_STATUS_DATA,
+					task_pid(current),
+					T_SCD,
+					rsbac_target_id,
+					A_owner,
+					rsbac_attribute_value))
+		{
+			error = -EPERM;
+			goto err_out;
+		}
+#endif
 	}
 
 	/* No error? Great, allocate a buffer for the file, and store it

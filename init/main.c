@@ -75,6 +75,8 @@
 #include <asm/sections.h>
 #include <asm/cacheflush.h>
 
+#include <rsbac/hooks.h>
+
 #ifdef CONFIG_X86_LOCAL_APIC
 #include <asm/smp.h>
 #endif
@@ -617,6 +619,9 @@ asmlinkage void __init start_kernel(void)
 	key_init();
 	security_init();
 	dbg_late_init();
+#ifdef CONFIG_RSBAC
+	rsbac_kthreads_init();
+#endif
 	vfs_caches_init(totalram_pages);
 	signals_init();
 	/* rootfs populating might need page-writeback */

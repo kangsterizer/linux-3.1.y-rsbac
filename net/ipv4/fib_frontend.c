@@ -46,6 +46,8 @@
 #include <net/rtnetlink.h>
 #include <net/xfrm.h>
 
+#include <rsbac/hooks.h>
+
 #ifndef CONFIG_IP_MULTIPLE_TABLES
 
 static int __net_init fib4_rules_init(struct net *net)
@@ -434,6 +436,11 @@ int ip_rt_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	struct rtentry rt;
 	int err;
 
+#ifdef CONFIG_RSBAC_NET
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	switch (cmd) {
 	case SIOCADDRT:		/* Add a route */
 	case SIOCDELRT:		/* Delete a route */
@@ -442,6 +449,21 @@ int ip_rt_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 
 		if (copy_from_user(&rt, arg, sizeof(rt)))
 			return -EFAULT;
+
+#ifdef CONFIG_RSBAC_NET
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.scd = ST_network;
+		rsbac_attribute_value.dummy = 0;
+		if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+					task_pid(current),
+					T_SCD,
+					rsbac_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			return -EPERM;
+		}
+#endif
 
 		rtnl_lock();
 		err = rtentry_to_fib_config(net, cmd, &rt, &cfg);
@@ -562,9 +584,29 @@ static int inet_rtm_delroute(struct sk_buff *skb, struct nlmsghdr *nlh, void *ar
 	struct fib_table *tb;
 	int err;
 
+#ifdef CONFIG_RSBAC_NET
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	err = rtm_to_fib_config(net, skb, nlh, &cfg);
 	if (err < 0)
 		goto errout;
+
+#ifdef CONFIG_RSBAC_NET
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.scd = ST_network;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	tb = fib_get_table(net, cfg.fc_table);
 	if (tb == NULL) {
@@ -584,9 +626,29 @@ static int inet_rtm_newroute(struct sk_buff *skb, struct nlmsghdr *nlh, void *ar
 	struct fib_table *tb;
 	int err;
 
+#ifdef CONFIG_RSBAC_NET
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	err = rtm_to_fib_config(net, skb, nlh, &cfg);
 	if (err < 0)
 		goto errout;
+
+#ifdef CONFIG_RSBAC_NET
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.scd = ST_network;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	tb = fib_new_table(net, cfg.fc_table);
 	if (tb == NULL) {

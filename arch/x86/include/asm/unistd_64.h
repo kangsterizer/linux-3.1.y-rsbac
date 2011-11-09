@@ -431,7 +431,14 @@ __SYSCALL(__NR_afs_syscall, sys_ni_syscall)
 __SYSCALL(__NR_tuxcall, sys_ni_syscall)
 
 #define __NR_security				185
+#ifdef CONFIG_RSBAC
+#ifndef __NR_rsbac
+#define __NR_rsbac __NR_security
+#endif
+__SYSCALL(__NR_rsbac, sys_rsbac)
+#else
 __SYSCALL(__NR_security, sys_ni_syscall)
+#endif
 
 #define __NR_gettid				186
 __SYSCALL(__NR_gettid, sys_gettid)

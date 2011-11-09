@@ -5441,6 +5441,13 @@ F:	include/linux/rose.h
 F:	include/net/rose.h
 F:	net/rose/
 
+RSBAC
+P:	Amon Ott
+M:	ao@rsbac.org
+L:	rsbac@rsbac.org
+W:	http://www.rsbac.org
+S:	Maintained
+
 RTL8180 WIRELESS DRIVER
 M:	"John W. Linville" <linville@tuxdriver.com>
 L:	linux-wireless@vger.kernel.org

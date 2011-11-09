@@ -31,6 +31,8 @@
 #include <net/pkt_sched.h>
 #include <net/pkt_cls.h>
 
+#include <rsbac/hooks.h>
+
 /* The list of all installed classifier types */
 
 static struct tcf_proto_ops *tcf_proto_base __read_mostly;
@@ -138,6 +140,28 @@ static int tc_ctl_tfilter(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 	unsigned long fh;
 	int err;
 	int tp_created = 0;
+
+#ifdef CONFIG_RSBAC_NET
+	enum  rsbac_adf_request_t rsbac_request;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+
+	rsbac_pr_debug(aef, "calling ADF\n");
+	if (n->nlmsg_type == RTM_GETTFILTER)
+		rsbac_request = R_GET_STATUS_DATA;
+	else
+		rsbac_request = R_MODIFY_SYSTEM_DATA;
+	rsbac_target_id.scd = ST_network;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(rsbac_request,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		return -EPERM;
+	}
+#endif
 
 replay:
 	t = NLMSG_DATA(n);
@@ -421,6 +445,25 @@ static int tc_dump_tfilter(struct sk_buff *skb, struct netlink_callback *cb)
 	unsigned long cl = 0;
 	const struct Qdisc_class_ops *cops;
 	struct tcf_dump_args arg;
+
+#ifdef CONFIG_RSBAC_NET
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC_NET
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.scd = ST_network;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_GET_STATUS_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		return -EPERM;
+	}
+#endif
 
 	if (cb->nlh->nlmsg_len < NLMSG_LENGTH(sizeof(*tcm)))
 		return skb->len;

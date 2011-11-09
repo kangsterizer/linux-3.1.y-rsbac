@@ -24,6 +24,8 @@
 #include <asm/uaccess.h>
 #include <asm/ioctls.h>
 
+#include <rsbac/hooks.h>
+
 /*
  * The max size that a non-root user is allowed to grow the pipe. Can
  * be set by root in /proc/sys/fs/pipe-max-size
@@ -357,10 +359,33 @@ pipe_read(struct kiocb *iocb, const struct iovec *_iov,
 	struct iovec *iov = (struct iovec *)_iov;
 	size_t total_len;
 
+#ifdef CONFIG_RSBAC_RW
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	total_len = iov_length(iov, nr_segs);
 	/* Null read succeeds. */
 	if (unlikely(total_len == 0))
 		return 0;
+
+#ifdef CONFIG_RSBAC_RW
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_READ,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	do_wakeup = 0;
 	ret = 0;
@@ -453,8 +478,27 @@ redo:
 		wake_up_interruptible_sync_poll(&pipe->wait, POLLOUT | POLLWRNORM);
 		kill_fasync(&pipe->fasync_writers, SIGIO, POLL_OUT);
 	}
-	if (ret > 0)
+	if (ret > 0) {
 		file_accessed(filp);
+
+#ifdef CONFIG_RSBAC_RW
+		rsbac_new_target_id.dummy = 0;
+
+		if (rsbac_adf_set_attr(R_READ,
+					task_pid(current),
+					T_IPC,
+					rsbac_target_id,
+					T_NONE,
+					rsbac_new_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			rsbac_printk(KERN_WARNING
+					"pipe_readv(): rsbac_adf_set_attr() returned error\n");
+		}
+#endif
+
+	}
 	return ret;
 }
 
@@ -471,10 +515,33 @@ pipe_write(struct kiocb *iocb, const struct iovec *_iov,
 	size_t total_len;
 	ssize_t chars;
 
+#ifdef CONFIG_RSBAC_RW
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	total_len = iov_length(iov, nr_segs);
 	/* Null write succeeds. */
 	if (unlikely(total_len == 0))
 		return 0;
+
+#ifdef CONFIG_RSBAC_RW
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_WRITE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	do_wakeup = 0;
 	ret = 0;
@@ -626,8 +693,27 @@ out:
 		wake_up_interruptible_sync_poll(&pipe->wait, POLLIN | POLLRDNORM);
 		kill_fasync(&pipe->fasync_readers, SIGIO, POLL_IN);
 	}
-	if (ret > 0)
+	if (ret > 0) {
 		file_update_time(filp);
+
+#ifdef CONFIG_RSBAC_RW
+		rsbac_new_target_id.dummy = 0;
+
+		if (rsbac_adf_set_attr(R_WRITE,
+					task_pid(current),
+					T_IPC,
+					rsbac_target_id,
+					T_NONE,
+					rsbac_new_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			rsbac_printk(KERN_WARNING
+					"pipe_writev(): rsbac_adf_set_attr() returned error\n");
+		}
+#endif
+	}
+
 	return ret;
 }
 
@@ -713,7 +799,20 @@ pipe_release(struct inode *inode, int decr, int decw)
 	pipe->writers -= decw;
 
 	if (!pipe->readers && !pipe->writers) {
+
+#ifdef CONFIG_RSBAC
+		union rsbac_target_id_t rsbac_target_id;
+#endif
+
 		free_pipe_info(inode);
+
+#ifdef CONFIG_RSBAC
+		rsbac_pr_debug(aef, "calling ACI remove_target()\n");
+		rsbac_target_id.ipc.type   = I_anonpipe;
+		rsbac_target_id.ipc.id.id_nr  = inode->i_ino;
+		rsbac_remove_target(T_IPC, rsbac_target_id);
+#endif
+
 	} else {
 		wake_up_interruptible_sync_poll(&pipe->wait, POLLIN | POLLOUT | POLLRDNORM | POLLWRNORM | POLLERR | POLLHUP);
 		kill_fasync(&pipe->fasync_readers, SIGIO, POLL_IN);
@@ -730,9 +829,48 @@ pipe_read_fasync(int fd, struct file *filp, int on)
 	struct inode *inode = filp->f_path.dentry->d_inode;
 	int retval;
 
+#ifdef CONFIG_RSBAC_RW
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC_RW
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_READ,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
+
 	mutex_lock(&inode->i_mutex);
 	retval = fasync_helper(fd, filp, on, &inode->i_pipe->fasync_readers);
 	mutex_unlock(&inode->i_mutex);
+
+#ifdef CONFIG_RSBAC_RW
+	rsbac_new_target_id.dummy = 0;
+
+	if (rsbac_adf_set_attr(R_READ,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING "pipe_read_fasync(): rsbac_adf_set_attr() returned error\n");
+	}
+#endif
 
 	return retval;
 }
@@ -744,9 +882,48 @@ pipe_write_fasync(int fd, struct file *filp, int on)
 	struct inode *inode = filp->f_path.dentry->d_inode;
 	int retval;
 
+#ifdef CONFIG_RSBAC_RW
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC_RW
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_WRITE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
+
 	mutex_lock(&inode->i_mutex);
 	retval = fasync_helper(fd, filp, on, &inode->i_pipe->fasync_writers);
 	mutex_unlock(&inode->i_mutex);
+
+#ifdef CONFIG_RSBAC_RW
+	rsbac_new_target_id.dummy = 0;
+
+	if (rsbac_adf_set_attr(R_WRITE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING "pipe_write_fasync(): rsbac_adf_set_attr() returned error\n");
+	}
+#endif
 
 	return retval;
 }
@@ -759,6 +936,45 @@ pipe_rdwr_fasync(int fd, struct file *filp, int on)
 	struct pipe_inode_info *pipe = inode->i_pipe;
 	int retval;
 
+#ifdef CONFIG_RSBAC_RW
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC_RW
+	rsbac_pr_debug(aef, "calling ADF for READ\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_READ,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+
+	rsbac_pr_debug(aef, "calling ADF for WRITE\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_WRITE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
+
+
 	mutex_lock(&inode->i_mutex);
 	retval = fasync_helper(fd, filp, on, &pipe->fasync_readers);
 	if (retval >= 0) {
@@ -767,6 +983,39 @@ pipe_rdwr_fasync(int fd, struct file *filp, int on)
 			fasync_helper(-1, filp, 0, &pipe->fasync_readers);
 	}
 	mutex_unlock(&inode->i_mutex);
+#ifdef CONFIG_RSBAC_RW
+	rsbac_new_target_id.dummy = 0;
+
+	if (rsbac_adf_set_attr(R_READ,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING
+				"pipe_rwdr_fasync(): rsbac_adf_set_attr() returned error\n");
+	}
+
+	/* RSBAC: notify adf of write to pipe */
+	rsbac_new_target_id.dummy = 0;
+
+	if (rsbac_adf_set_attr(R_WRITE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING
+				"pipe_rwdr_fasync(): rsbac_adf_set_attr() returned error\n");
+	}
+#endif
+
 	return retval;
 }
 
@@ -798,6 +1047,29 @@ pipe_read_open(struct inode *inode, struct file *filp)
 {
 	int ret = -ENOENT;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_READ_OPEN,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
+
 	mutex_lock(&inode->i_mutex);
 
 	if (inode->i_pipe) {
@@ -807,6 +1079,22 @@ pipe_read_open(struct inode *inode, struct file *filp)
 
 	mutex_unlock(&inode->i_mutex);
 
+#ifdef CONFIG_RSBAC
+	rsbac_new_target_id.dummy = 0;
+
+	if (rsbac_adf_set_attr(R_READ_OPEN,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING "pipe_read_open(): rsbac_adf_set_attr() returned error\n");
+	}
+#endif
+
 	return ret;
 }
 
@@ -814,6 +1102,29 @@ static int
 pipe_write_open(struct inode *inode, struct file *filp)
 {
 	int ret = -ENOENT;
+
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_WRITE_OPEN,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	mutex_lock(&inode->i_mutex);
 
@@ -824,6 +1135,22 @@ pipe_write_open(struct inode *inode, struct file *filp)
 
 	mutex_unlock(&inode->i_mutex);
 
+#ifdef CONFIG_RSBAC
+	rsbac_new_target_id.dummy = 0;
+
+	if (rsbac_adf_set_attr(R_WRITE_OPEN,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING "pipe_write_open(): rsbac_adf_set_attr() returned error\n");
+	}
+#endif
+
 	return ret;
 }
 
@@ -831,6 +1158,30 @@ static int
 pipe_rdwr_open(struct inode *inode, struct file *filp)
 {
 	int ret = -ENOENT;
+
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_attribute_value.dummy = 0;
+
+	if (!rsbac_adf_request(R_READ_WRITE_OPEN,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+
+#endif
 
 	mutex_lock(&inode->i_mutex);
 
@@ -843,6 +1194,23 @@ pipe_rdwr_open(struct inode *inode, struct file *filp)
 	}
 
 	mutex_unlock(&inode->i_mutex);
+
+#ifdef CONFIG_RSBAC
+	/* RSBAC: notify adf of read_write_open on pipe */
+	rsbac_new_target_id.dummy = 0;
+
+	if (rsbac_adf_set_attr(R_READ_WRITE_OPEN,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING "pipe_rdwr_open(): rsbac_adf_set_attr() returned error\n");
+	}
+#endif
 
 	return ret;
 }
@@ -993,6 +1361,12 @@ struct file *create_write_pipe(int flags)
 	struct path path;
 	struct qstr name = { .name = "" };
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	err = -ENFILE;
 	inode = get_pipe_inode();
 	if (!inode)
@@ -1015,6 +1389,24 @@ struct file *create_write_pipe(int flags)
 	f->f_flags = O_WRONLY | (flags & O_NONBLOCK);
 	f->f_version = 0;
 
+#ifdef CONFIG_RSBAC
+        rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = inode->i_ino;
+	rsbac_new_target_id.dummy = 0;
+	rsbac_attribute_value.dummy = 0;
+	if (rsbac_adf_set_attr(R_CREATE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING
+				"do_pipe() [sys_pipe()]: rsbac_adf_set_attr() returned error");
+	}
+#endif
 	return f;
 
  err_dentry:
@@ -1055,6 +1447,27 @@ int do_pipe_flags(int *fd, int flags)
 	struct file *fw, *fr;
 	int error;
 	int fdw, fdr;
+
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[sys_pipe()]: calling ADF\n");
+	rsbac_target_id.ipc.type = I_anonpipe;
+	rsbac_target_id.ipc.id.id_nr = 0;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_CREATE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	if (flags & ~(O_CLOEXEC | O_NONBLOCK))
 		return -EINVAL;

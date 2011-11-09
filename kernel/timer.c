@@ -47,6 +47,8 @@
 #include <asm/timex.h>
 #include <asm/io.h>
 
+#include <rsbac/hooks.h>
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/timer.h>
 
@@ -1376,14 +1378,22 @@ SYSCALL_DEFINE0(getppid)
 
 SYSCALL_DEFINE0(getuid)
 {
+#ifdef CONFIG_RSBAC_FAKE_ROOT_UID
+	return rsbac_fake_uid();
+#else
 	/* Only we change this so SMP safe */
 	return current_uid();
+#endif
 }
 
 SYSCALL_DEFINE0(geteuid)
 {
+#ifdef CONFIG_RSBAC_FAKE_ROOT_UID
+	return rsbac_fake_euid();
+#else
 	/* Only we change this so SMP safe */
 	return current_euid();
+#endif
 }
 
 SYSCALL_DEFINE0(getgid)

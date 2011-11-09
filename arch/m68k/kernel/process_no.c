@@ -121,7 +121,11 @@ void show_regs(struct pt_regs * regs)
 int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	int retval;
+#ifdef CONFIG_RSBAC
+	long clone_arg = flags | CLONE_VM | CLONE_KTHREAD;
+#else
 	long clone_arg = flags | CLONE_VM;
+#endif
 	mm_segment_t fs;
 
 	fs = get_fs();
@@ -149,6 +153,12 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 		: "cc", "%d0", "%d1", "%d2");
 
 	set_fs(fs);
+
+#ifdef CONFIG_RSBAC
+	if (retval > 0)
+		rsbac_kthread_notify(find_pid_ns(retval, &init_pid_ns));
+#endif
+
 	return retval;
 }
 EXPORT_SYMBOL(kernel_thread);

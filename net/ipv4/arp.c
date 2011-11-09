@@ -123,6 +123,8 @@ EXPORT_SYMBOL(clip_tbl_hook);
 
 #include <linux/netfilter_arp.h>
 
+#include <rsbac/hooks.h>
+
 /*
  *	Interface to generic neighbour cache.
  */
@@ -1172,15 +1174,32 @@ int arp_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 	struct arpreq r;
 	struct net_device *dev = NULL;
 
+#ifdef CONFIG_RSBAC_NET_DEV
+	enum  rsbac_adf_request_t rsbac_request = R_NONE;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	switch (cmd) {
 	case SIOCDARP:
 	case SIOCSARP:
 		if (!capable(CAP_NET_ADMIN))
 			return -EPERM;
+
+#ifdef CONFIG_RSBAC_NET_DEV
+			rsbac_request = R_MODIFY_SYSTEM_DATA;
+#endif
+
 	case SIOCGARP:
 		err = copy_from_user(&r, arg, sizeof(struct arpreq));
 		if (err)
 			return -EFAULT;
+
+#ifdef CONFIG_RSBAC_NET_DEV
+			if (rsbac_request == R_NONE)
+				rsbac_request = R_GET_STATUS_DATA;
+#endif
+
 		break;
 	default:
 		return -EINVAL;
@@ -1208,6 +1227,24 @@ int arp_ioctl(struct net *net, unsigned int cmd, void __user *arg)
 		err = -EINVAL;
 		if ((r.arp_flags & ATF_COM) && r.arp_ha.sa_family != dev->type)
 			goto out;
+
+#ifdef CONFIG_RSBAC_NET_DEV
+		rsbac_pr_debug(aef, "calling ADF\n");
+		strncpy(rsbac_target_id.netdev, r.arp_dev, RSBAC_IFNAMSIZ);
+		rsbac_target_id.netdev[RSBAC_IFNAMSIZ] = 0;
+		rsbac_attribute_value.dummy = 0;
+		if (!rsbac_adf_request(rsbac_request,
+					task_pid(current),
+					T_NETDEV,
+					rsbac_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			err = -EPERM;
+			goto out;
+		}
+#endif
+
 	} else if (cmd == SIOCGARP) {
 		err = -ENODEV;
 		goto out;

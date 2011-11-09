@@ -116,6 +116,10 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 {
 	struct pt_regs regs;
 
+#ifdef CONFIG_RSBAC
+	int rsbac_retval;
+#endif
+
 	memset(&regs, 0, sizeof(regs));
 	regs.psw.mask = psw_kernel_bits | PSW_MASK_IO | PSW_MASK_EXT;
 	regs.psw.addr = (unsigned long) kernel_thread_starter | PSW_ADDR_AMODE;
@@ -125,8 +129,13 @@ int kernel_thread(int (*fn)(void *), void * arg, unsigned long flags)
 	regs.orig_gpr2 = -1;
 
 	/* Ok, create the new process.. */
+#ifdef CONFIG_RSBAC
+	rsbac_retval = do_fork(flags | CLONE_VM | CLONE_UNTRACED | CLONE_KTHREAD, 0, &regs, 0, NULL, NULL);
+	return rsbac_retval;
+#else
 	return do_fork(flags | CLONE_VM | CLONE_UNTRACED,
 		       0, &regs, 0, NULL, NULL);
+#endif
 }
 EXPORT_SYMBOL(kernel_thread);
 

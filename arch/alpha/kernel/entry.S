@@ -653,7 +653,11 @@ kernel_thread:
 	stq	$2, 152($sp)		/* HAE */
 
 	/* Shuffle FLAGS to the front; add CLONE_VM.  */
+#ifdef CONFIG_RSBAC
+	ldi	$1, CLONE_VM|CLONE_UNTRACED | CLONE_KTHREAD;
+#else
 	ldi	$1, CLONE_VM|CLONE_UNTRACED
+#endif
 	or	$18, $1, $16
 	bsr	$26, sys_clone
 

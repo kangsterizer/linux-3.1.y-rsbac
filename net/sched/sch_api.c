@@ -35,6 +35,8 @@
 #include <net/netlink.h>
 #include <net/pkt_sched.h>
 
+#include <rsbac/hooks.h>
+
 static int qdisc_notify(struct net *net, struct sk_buff *oskb,
 			struct nlmsghdr *n, u32 clid,
 			struct Qdisc *old, struct Qdisc *new);
@@ -976,9 +978,43 @@ static int tc_get_qdisc(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 	struct Qdisc *p = NULL;
 	int err;
 
+#ifdef CONFIG_RSBAC_NET_DEV
+	enum  rsbac_adf_request_t rsbac_request;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+	char * rsbac_colon;
+#endif
+#endif
+
 	dev = __dev_get_by_index(net, tcm->tcm_ifindex);
 	if (!dev)
 		return -ENODEV;
+
+#ifdef CONFIG_RSBAC_NET_DEV
+	rsbac_pr_debug(aef, "calling ADF\n");
+	if (n->nlmsg_type == RTM_DELQDISC)
+		rsbac_request = R_MODIFY_SYSTEM_DATA;
+	else
+		rsbac_request = R_GET_STATUS_DATA;
+	strncpy(rsbac_target_id.netdev, dev->name, RSBAC_IFNAMSIZ);
+	rsbac_target_id.netdev[RSBAC_IFNAMSIZ] = 0;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+	rsbac_colon = strchr(rsbac_target_id.netdev, ':');
+	if (rsbac_colon)
+		*rsbac_colon = 0;
+#endif
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(rsbac_request,
+				task_pid(current),
+				T_NETDEV,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	err = nlmsg_parse(n, sizeof(*tcm), tca, TCA_MAX, NULL);
 	if (err < 0)
@@ -1039,6 +1075,13 @@ static int tc_modify_qdisc(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 	struct Qdisc *q, *p;
 	int err;
 
+#ifdef CONFIG_RSBAC_NET_DEV
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+	char * rsbac_colon;
+#endif
+#endif
 replay:
 	/* Reinit, just in case something touches this. */
 	tcm = NLMSG_DATA(n);
@@ -1048,6 +1091,27 @@ replay:
 	dev = __dev_get_by_index(net, tcm->tcm_ifindex);
 	if (!dev)
 		return -ENODEV;
+
+#ifdef CONFIG_RSBAC_NET_DEV
+	rsbac_pr_debug(aef, "tc_modify_qdisc(): calling ADF\n");
+	strncpy(rsbac_target_id.netdev, dev->name, RSBAC_IFNAMSIZ);
+	rsbac_target_id.netdev[RSBAC_IFNAMSIZ] = 0;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+	rsbac_colon = strchr(rsbac_target_id.netdev, ':');
+	if (rsbac_colon)
+		*rsbac_colon = 0;
+#endif
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_NETDEV,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	err = nlmsg_parse(n, sizeof(*tcm), tca, TCA_MAX, NULL);
 	if (err < 0)
@@ -1313,6 +1377,13 @@ static int tc_dump_qdisc(struct sk_buff *skb, struct netlink_callback *cb)
 	int s_idx, s_q_idx;
 	struct net_device *dev;
 
+#ifdef CONFIG_RSBAC_NET_DEV
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+	char * rsbac_colon;
+#endif
+#endif
 	s_idx = cb->args[0];
 	s_q_idx = q_idx = cb->args[1];
 
@@ -1325,6 +1396,28 @@ static int tc_dump_qdisc(struct sk_buff *skb, struct netlink_callback *cb)
 			goto cont;
 		if (idx > s_idx)
 			s_q_idx = 0;
+
+#ifdef CONFIG_RSBAC_NET_DEV
+		rsbac_pr_debug(aef, "tc_dump_qdisc(): calling ADF\n");
+		strncpy(rsbac_target_id.netdev, dev->name, RSBAC_IFNAMSIZ);
+		rsbac_target_id.netdev[RSBAC_IFNAMSIZ] = 0;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+		rsbac_colon = strchr(rsbac_target_id.netdev, ':');
+		if(rsbac_colon)
+			*rsbac_colon = 0;
+#endif
+		rsbac_attribute_value.dummy = 0;
+		if (!rsbac_adf_request(R_GET_STATUS_DATA,
+					task_pid(current),
+					T_NETDEV,
+					rsbac_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			continue;
+		}
+#endif
+
 		q_idx = 0;
 
 		if (tc_dump_qdisc_root(dev->qdisc, skb, cb, &q_idx, s_q_idx) < 0)
@@ -1372,9 +1465,38 @@ static int tc_ctl_tclass(struct sk_buff *skb, struct nlmsghdr *n, void *arg)
 	u32 qid = TC_H_MAJ(clid);
 	int err;
 
+#ifdef CONFIG_RSBAC_NET_DEV
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+	char * rsbac_colon;
+#endif
+#endif
+
 	dev = __dev_get_by_index(net, tcm->tcm_ifindex);
 	if (!dev)
 		return -ENODEV;
+
+#ifdef CONFIG_RSBAC_NET_DEV
+	rsbac_pr_debug(aef, "tc_ctl_tclass(): calling ADF\n");
+	strncpy(rsbac_target_id.netdev, dev->name, RSBAC_IFNAMSIZ);
+	rsbac_target_id.netdev[RSBAC_IFNAMSIZ] = 0;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+	rsbac_colon = strchr(rsbac_target_id.netdev, ':');
+	if (rsbac_colon)
+		*rsbac_colon = 0;
+#endif
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_NETDEV,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	err = nlmsg_parse(n, sizeof(*tcm), tca, TCA_MAX, NULL);
 	if (err < 0)
@@ -1615,11 +1737,39 @@ static int tc_dump_tclass(struct sk_buff *skb, struct netlink_callback *cb)
 	struct net_device *dev;
 	int t, s_t;
 
+#ifdef CONFIG_RSBAC_NET_DEV
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+	char * rsbac_colon;
+#endif
+#endif
 	if (cb->nlh->nlmsg_len < NLMSG_LENGTH(sizeof(*tcm)))
 		return 0;
 	dev = dev_get_by_index(net, tcm->tcm_ifindex);
 	if (!dev)
 		return 0;
+
+#ifdef CONFIG_RSBAC_NET_DEV
+	rsbac_pr_debug(aef, "calling ADF\n");
+	strncpy(rsbac_target_id.netdev, dev->name, RSBAC_IFNAMSIZ);
+	rsbac_target_id.netdev[RSBAC_IFNAMSIZ] = 0;
+#if !defined(CONFIG_RSBAC_NET_DEV_VIRT)
+	rsbac_colon = strchr(rsbac_target_id.netdev, ':');
+	if (rsbac_colon)
+		*rsbac_colon = 0;
+#endif
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_GET_STATUS_DATA,
+				task_pid(current),
+				T_NETDEV,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		dev_put(dev);
+		return -EPERM;
+	}
+#endif
 
 	s_t = cb->args[0];
 	t = 0;

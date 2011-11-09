@@ -1,0 +1,27 @@
+RSBAC README for patching against other versions.
+-------------------------------------------------
+
+To make my point clear: I do not recommend patching against other kernel
+versions than stated in the patch filename. Rather check RSBAC homepage
+for new versions or send a note to the RSBAC mailing list (see README).
+
+If you had to patch against another version, you will have to do the following:
+ - Make sure you understand how rsbac_adf_request() and rsbac_adf_set_attr()
+   calls work
+ - Patch in all rejects by hand.
+ - Edit fs/namei.c:
+     rsbac_lookup_one_len/hash must be lookup_one_len/hash minus
+     checks (permission(), rsbac_adf_request()).
+     Please do not forget to change the call to lookup_hash in
+     rsbac_lookup_one_len into rsbac_lookup_hash.
+ - arch/i386/kernel/entry.S must contain the RSBAC syscall number added,
+   embraced by #ifdef CONFIG_RSBAC.
+   You may have to adjust syscall numbers there and in
+   include/rsbac/unistd-i386.h. After that make sure you recompiled the
+   admin tools.
+ - Same for all other archs
+ - Check in rsbac/data_structures/aci_data_structures.c, if file opening and
+   closing are done correctly (rsbac_read_open, rsbac_write_open,
+   rsbac_read_close, rsbac_write_close).
+ - Check in rsbac/help/debug.c, whether the logging in rsbac_log() is
+   implemented correctly - see sys_syslog() in kernel/printk.c

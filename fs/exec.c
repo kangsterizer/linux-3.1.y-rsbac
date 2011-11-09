@@ -61,6 +61,8 @@
 #include <asm/tlb.h>
 #include "internal.h"
 
+#include <rsbac/hooks.h>
+
 int core_uses_pid;
 char core_pattern[CORENAME_MAX_SIZE] = "core";
 unsigned int core_pipe_limit;
@@ -121,6 +123,11 @@ SYSCALL_DEFINE1(uselib, const char __user *, library)
 		.intent = LOOKUP_OPEN
 	};
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (IS_ERR(tmp))
 		goto out;
 
@@ -134,9 +141,35 @@ SYSCALL_DEFINE1(uselib, const char __user *, library)
 	if (!S_ISREG(file->f_path.dentry->d_inode->i_mode))
 		goto exit;
 
+#ifdef CONFIG_RSBAC_ALLOW_DAC_DISABLE_PART
+	if (rsbac_dac_part_disabled(file->f_path.dentry))
+		error = 0;
+	else
+#endif
 	error = -EACCES;
 	if (file->f_path.mnt->mnt_flags & MNT_NOEXEC)
 		goto exit;
+
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.file.device = file->f_path.dentry->d_inode->i_sb->s_dev;
+	rsbac_target_id.file.inode  = file->f_path.dentry->d_inode->i_ino;
+	rsbac_target_id.file.dentry_p = file->f_path.dentry;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MAP_EXEC,
+				task_pid(current),
+				T_FILE,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_pr_debug(aef, "request not granted, my PID: %i\n",
+			       task_pid(current));
+		error = -EPERM;
+		goto exit;
+	}
+#endif
 
 	fsnotify_open(file);
 
@@ -160,6 +193,29 @@ SYSCALL_DEFINE1(uselib, const char __user *, library)
 		read_unlock(&binfmt_lock);
 	}
 exit:
+
+	/* RSBAC: notify ADF of mapped segment */
+#ifdef CONFIG_RSBAC
+	if (!error) {
+		union rsbac_target_id_t rsbac_new_target_id;
+
+		rsbac_pr_debug(aef, "calling ADF_set_attr\n");
+		rsbac_new_target_id.dummy = 0;
+		if (rsbac_adf_set_attr(R_MAP_EXEC,
+					task_pid(current),
+					T_FILE,
+					rsbac_target_id,
+					T_NONE,
+					rsbac_new_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			rsbac_printk(KERN_WARNING
+					"sys_uselib(): rsbac_adf_set_attr() returned error\n");
+		}
+	}
+#endif
+
 	fput(file);
 out:
   	return error;
@@ -781,6 +837,13 @@ struct file *open_exec(const char *name)
 		goto exit;
 
 	fsnotify_open(file);
+
+#ifdef CONFIG_RSBAC_ALLOW_DAC_DISABLE_PART
+	if (rsbac_dac_part_disabled(file->f_path.dentry))
+		err = 0;
+	else
+#endif
+
 
 	err = deny_write_access(file);
 	if (err)
@@ -1461,6 +1524,12 @@ static int do_execve_common(const char *filename,
 	int retval;
 	const struct cred *cred = current_cred();
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	/*
 	 * We move the actual failure in case of RLIMIT_NPROC excess from
 	 * set*uid() to execve() because too many poorly written programs
@@ -1519,6 +1588,26 @@ static int do_execve_common(const char *filename,
 	if ((retval = bprm->envc) < 0)
 		goto out;
 
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[sys_execve()]: calling ADF\n");
+	rsbac_target_id.file.device = file->f_dentry->d_sb->s_dev;
+	rsbac_target_id.file.inode  = file->f_dentry->d_inode->i_ino;
+	rsbac_target_id.file.dentry_p = file->f_dentry;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_EXECUTE,
+				task_pid(current),
+				T_FILE,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_pr_debug(aef, "[sys_execve()]: request not granted, my PID: %i\n",
+				task_pid(current));
+		retval = -EPERM;
+		goto out;
+	}
+#endif
+
 	retval = prepare_binprm(bprm);
 	if (retval < 0)
 		goto out;
@@ -1544,6 +1633,25 @@ static int do_execve_common(const char *filename,
 	current->fs->in_exec = 0;
 	current->in_execve = 0;
 	acct_update_integrals(current);
+/* RSBAC: notify ADF of changed program in this process
+ * Most structures are already filled
+ */
+#ifdef CONFIG_RSBAC
+		rsbac_pr_debug(aef, "[sys_execve()]: calling ADF_set_attr\n");
+		rsbac_new_target_id.dummy = 0;
+		if (rsbac_adf_set_attr(R_EXECUTE,
+					task_pid(current),
+					T_FILE,
+					rsbac_target_id,
+					T_NONE,
+					rsbac_new_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			rsbac_printk(KERN_WARNING
+					"do_execve() [sys_execve]: rsbac_adf_set_attr() returned error\n");
+		}
+#endif
 	free_bprm(bprm);
 	if (displaced)
 		put_files_struct(displaced);

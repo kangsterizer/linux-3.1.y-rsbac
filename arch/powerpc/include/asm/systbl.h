@@ -227,7 +227,11 @@ SYSCALL_SPU(fremovexattr)
 COMPAT_SYS_SPU(futex)
 COMPAT_SYS_SPU(sched_setaffinity)
 COMPAT_SYS_SPU(sched_getaffinity)
+#ifdef CONFIG_RSBAC
+SYSCALL(rsbac)
+#else
 SYSCALL(ni_syscall)
+#endif
 SYSCALL(ni_syscall)
 SYS32ONLY(sendfile64)
 COMPAT_SYS_SPU(io_setup)

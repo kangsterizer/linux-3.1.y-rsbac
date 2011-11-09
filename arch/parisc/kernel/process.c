@@ -176,7 +176,12 @@ pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 	 *	  kernel_thread can become a #define.
 	 */
 
+	/* Ok, create the new process.. */
+#ifdef CONFIG_RSBAC
+	return __kernel_thread(fn, arg, flags | CLONE_KTHREAD);
+#else
 	return __kernel_thread(fn, arg, flags);
+#endif
 }
 EXPORT_SYMBOL(kernel_thread);
 

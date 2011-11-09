@@ -35,6 +35,8 @@
 #include "compat_ptrace.h"
 #endif
 
+#include <rsbac/hooks.h>
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/syscalls.h>
 

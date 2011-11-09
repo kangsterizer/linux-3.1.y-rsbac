@@ -53,6 +53,8 @@
 #include <asm/io.h>
 #include <asm/unistd.h>
 
+#include <rsbac/hooks.h>
+
 #ifndef SET_UNALIGN_CTL
 # define SET_UNALIGN_CTL(a,b)	(-EINVAL)
 #endif
@@ -177,6 +179,12 @@ SYSCALL_DEFINE3(setpriority, int, which, int, who, int, niceval)
 	int error = -EINVAL;
 	struct pid *pgrp;
 
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (which > PRIO_USER || which < PRIO_PROCESS)
 		goto out;
 
@@ -186,6 +194,39 @@ SYSCALL_DEFINE3(setpriority, int, which, int, who, int, niceval)
 		niceval = -20;
 	if (niceval > 19)
 		niceval = 19;
+
+#ifdef CONFIG_RSBAC
+	if ((niceval < (current->static_prio - MAX_RT_PRIO - 20)) || ((which == PRIO_PROCESS) 
+				&& (who != 0)
+				&& (who != current->pid))
+					|| ((which == PRIO_PGRP)
+					&& (who != 0)
+					&& (who != current->pid)))
+	{
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rcu_read_lock();
+		if (niceval < (current->static_prio - MAX_RT_PRIO - 20)) {
+			rsbac_target = T_SCD;
+			rsbac_target_id.scd = ST_priority;
+		} else {
+			rsbac_target = T_PROCESS;
+			rsbac_target_id.process = find_pid_ns(who, &init_pid_ns);
+		}
+		rsbac_attribute_value.priority = niceval;
+		if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+					task_pid(current),
+					rsbac_target,
+					rsbac_target_id,
+					A_priority,
+					rsbac_attribute_value))
+		{
+			rcu_read_unlock();
+			error = -EPERM;
+			goto out;
+		}
+		rcu_read_unlock();
+	}
+#endif
 
 	rcu_read_lock();
 	read_lock(&tasklist_lock);
@@ -431,6 +472,11 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 	char buffer[256];
 	int ret = 0;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	/* We only trust the superuser with rebooting the system. */
 	if (!capable(CAP_SYS_BOOT))
 		return -EPERM;
@@ -448,6 +494,21 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 	 */
 	if ((cmd == LINUX_REBOOT_CMD_POWER_OFF) && !pm_power_off)
 		cmd = LINUX_REBOOT_CMD_HALT;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.dummy = 0;
+	rsbac_attribute_value.reboot_cmd = cmd;
+	if (!rsbac_adf_request(R_SHUTDOWN,
+				task_pid(current),
+				T_NONE,
+				rsbac_target_id,
+				A_reboot_cmd,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	mutex_lock(&reboot_mutex);
 	switch (cmd) {
@@ -554,18 +615,66 @@ SYSCALL_DEFINE2(setregid, gid_t, rgid, gid_t, egid)
 
 	retval = -EPERM;
 	if (rgid != (gid_t) -1) {
-		if (old->gid == rgid ||
+
+#ifdef CONFIG_RSBAC
+		union rsbac_target_id_t rsbac_target_id;
+		union rsbac_attribute_value_t rsbac_attribute_value;
+
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.process = task_pid(current);
+		rsbac_attribute_value.long_dummy = 0;
+		rsbac_attribute_value.group = RSBAC_GEN_GID(RSBAC_UM_VIRTUAL_KEEP, rgid);
+#endif
+
+		if ((old->gid == rgid ||
 		    old->egid == rgid ||
 		    nsown_capable(CAP_SETGID))
+
+#ifdef CONFIG_RSBAC
+				&& rsbac_adf_request(R_CHANGE_GROUP,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_group,
+					rsbac_attribute_value)
+#endif
+                   )
 			new->gid = rgid;
 		else
 			goto error;
 	}
 	if (egid != (gid_t) -1) {
-		if (old->gid == egid ||
+
+#ifdef CONFIG_RSBAC_DAC_GROUP
+		union rsbac_target_id_t rsbac_target_id;
+		union rsbac_attribute_value_t rsbac_attribute_value;
+
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.process = task_pid(current);
+		rsbac_attribute_value.long_dummy = 0;
+		rsbac_attribute_value.group = RSBAC_GEN_GID(RSBAC_UM_VIRTUAL_KEEP, egid);
+#endif
+
+		if ((old->gid == egid ||
 		    old->egid == egid ||
 		    old->sgid == egid ||
 		    nsown_capable(CAP_SETGID))
+
+#ifdef CONFIG_RSBAC_DAC_GROUP
+				&& rsbac_adf_request(R_CHANGE_DAC_EFF_GROUP,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_group,
+					rsbac_attribute_value)
+				&& rsbac_adf_request(R_CHANGE_DAC_FS_GROUP,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_group,
+					rsbac_attribute_value)
+#endif
+                   )
 			new->egid = egid;
 		else
 			goto error;
@@ -594,16 +703,68 @@ SYSCALL_DEFINE1(setgid, gid_t, gid)
 	struct cred *new;
 	int retval;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	new = prepare_creds();
 	if (!new)
 		return -ENOMEM;
 	old = current_cred();
 
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.process = task_pid(current);
+	rsbac_attribute_value.group = RSBAC_GEN_GID(RSBAC_UM_VIRTUAL_KEEP, gid);
+#endif
+
 	retval = -EPERM;
-	if (nsown_capable(CAP_SETGID))
+	if ((nsown_capable(CAP_SETGID))
+#ifdef CONFIG_RSBAC
+			&& rsbac_adf_request(R_CHANGE_GROUP,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_group,
+				rsbac_attribute_value)
+#ifdef CONFIG_RSBAC_DAC_GROUP
+			&& rsbac_adf_request(R_CHANGE_DAC_EFF_GROUP,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_group,
+				rsbac_attribute_value)
+			&& rsbac_adf_request(R_CHANGE_DAC_FS_GROUP,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_group,
+				rsbac_attribute_value)
+#endif
+#endif
+           )
+	{
 		new->gid = new->egid = new->sgid = new->fsgid = gid;
-	else if (gid == old->gid || gid == old->sgid)
+	} else if ((gid == old->gid || gid == old->sgid)
+#ifdef CONFIG_RSBAC_DAC_GROUP
+			&& rsbac_adf_request(R_CHANGE_DAC_EFF_GROUP,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_group,
+				rsbac_attribute_value)
+			&& rsbac_adf_request(R_CHANGE_DAC_FS_GROUP,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_group,
+				rsbac_attribute_value)
+#endif
+                )
+	{
 		new->egid = new->fsgid = gid;
+	}
 	else
 		goto error;
 
@@ -664,6 +825,12 @@ SYSCALL_DEFINE2(setreuid, uid_t, ruid, uid_t, euid)
 	struct cred *new;
 	int retval;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	new = prepare_creds();
 	if (!new)
 		return -ENOMEM;
@@ -697,11 +864,106 @@ SYSCALL_DEFINE2(setreuid, uid_t, ruid, uid_t, euid)
 		new->suid = new->euid;
 	new->fsuid = new->euid;
 
+#ifdef CONFIG_RSBAC
+	if (ruid != (uid_t) -1) {
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.process = task_pid(current);
+		rsbac_attribute_value.long_dummy = 0;
+		rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, ruid);
+		if (!rsbac_adf_request(R_CHANGE_OWNER,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_owner,
+					rsbac_attribute_value)) {
+			retval = -EPERM;
+			goto error;
+		}
+	}
+#ifdef CONFIG_RSBAC_DAC_OWNER
+	if (euid != (uid_t) -1) {
+		rsbac_pr_debug(aef, "calling ADF for euid\n");
+		rsbac_target_id.process = task_pid(current);
+		rsbac_attribute_value.long_dummy = 0;
+		rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, euid);
+		if (!rsbac_adf_request(R_CHANGE_DAC_EFF_OWNER,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_owner,
+					rsbac_attribute_value)) {
+			retval = -EPERM;
+			goto error;
+		}
+		if (!rsbac_adf_request(R_CHANGE_DAC_FS_OWNER,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_owner,
+					rsbac_attribute_value)) {
+			retval = -EPERM;
+			goto error;
+		}
+	}
+#endif
+#endif
+
 	retval = security_task_fix_setuid(new, old, LSM_SETID_RE);
 	if (retval < 0)
 		goto error;
 
-	return commit_creds(new);
+	retval = commit_creds(new);
+
+#ifdef CONFIG_RSBAC
+	if(!retval) {
+		if(ruid != (uid_t) -1) {
+			rsbac_set_audit_uid(old->uid);
+			rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, current_uid());
+			rsbac_new_target_id.dummy = 0;
+			if (rsbac_adf_set_attr(R_CHANGE_OWNER,
+						task_pid(current),
+						T_PROCESS,
+						rsbac_target_id,
+						T_NONE,
+						rsbac_new_target_id,
+						A_owner,
+						rsbac_attribute_value)) {
+				rsbac_printk(KERN_WARNING
+						"sys_setreuid(): rsbac_adf_set_attr() returned error");
+			}
+		}
+#ifdef CONFIG_RSBAC_DAC_OWNER
+		if(euid != (uid_t) -1) {
+			rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, current_euid());
+			rsbac_new_target_id.dummy = 0;
+			if (rsbac_adf_set_attr(R_CHANGE_DAC_EFF_OWNER,
+						task_pid(current),
+						T_PROCESS,
+						rsbac_target_id,
+						T_NONE,
+						rsbac_new_target_id,
+						A_owner,
+						rsbac_attribute_value)) {
+				rsbac_printk(KERN_WARNING
+						"sys_setreuid(): rsbac_adf_set_attr() for euid returned error");
+			}
+			if (rsbac_adf_set_attr(R_CHANGE_DAC_FS_OWNER,
+						task_pid(current),
+						T_PROCESS,
+						rsbac_target_id,
+						T_NONE,
+						rsbac_new_target_id,
+						A_owner,
+						rsbac_attribute_value)) {
+				printk(KERN_WARNING
+						"sys_setreuid(): rsbac_adf_set_attr() for fsuid returned error");
+			}
+		}
+#endif
+	}
+#endif
+
+	return retval;
 
 error:
 	abort_creds(new);
@@ -725,11 +987,59 @@ SYSCALL_DEFINE1(setuid, uid_t, uid)
 	struct cred *new;
 	int retval;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
+#ifdef CONFIG_RSBAC_FAKE_ROOT_UID
+	if(!uid && rsbac_uid_faked())
+		return 0;
+#endif
+
 	new = prepare_creds();
 	if (!new)
 		return -ENOMEM;
 	old = current_cred();
 
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.process = task_pid(current);
+	rsbac_attribute_value.long_dummy = 0;
+	rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, uid);
+	if(!rsbac_adf_request(R_CHANGE_OWNER,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_owner,
+				rsbac_attribute_value)) {
+		retval = -EPERM;
+		goto error;
+	}
+#ifdef CONFIG_RSBAC_DAC_OWNER
+	rsbac_pr_debug(aef, "calling ADF for euid\n");
+	if (!rsbac_adf_request(R_CHANGE_DAC_EFF_OWNER,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_owner,
+				rsbac_attribute_value)) {
+		retval = -EPERM;
+		goto error;
+	}
+	rsbac_pr_debug(aef, "calling ADF for fsuid\n");
+	if (!rsbac_adf_request(R_CHANGE_DAC_FS_OWNER,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_owner,
+				rsbac_attribute_value)) {
+		retval = -EPERM;
+		goto error;
+	}
+#endif
+#endif
 	retval = -EPERM;
 	if (nsown_capable(CAP_SETUID)) {
 		new->suid = new->uid = uid;
@@ -748,7 +1058,53 @@ SYSCALL_DEFINE1(setuid, uid_t, uid)
 	if (retval < 0)
 		goto error;
 
-	return commit_creds(new);
+	retval = commit_creds(new);
+
+#ifdef CONFIG_RSBAC
+	if (!retval) {
+		rsbac_set_audit_uid(old->uid);
+		rsbac_new_target_id.dummy = 0;
+		if (rsbac_adf_set_attr(R_CHANGE_OWNER,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					T_NONE,
+					rsbac_new_target_id,
+					A_owner,
+					rsbac_attribute_value)) {
+			rsbac_printk(KERN_WARNING
+					"sys_setuid(): rsbac_adf_set_attr() returned error");
+		}
+#ifdef CONFIG_RSBAC_DAC_OWNER
+		rsbac_new_target_id.dummy = 0;
+		if (rsbac_adf_set_attr(R_CHANGE_DAC_EFF_OWNER,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					T_NONE,
+					rsbac_new_target_id,
+					A_owner,
+					rsbac_attribute_value)) {
+			rsbac_printk(KERN_WARNING
+					"sys_setuid(): rsbac_adf_set_attr() for euid returned error");
+		}
+		rsbac_new_target_id.dummy = 0;
+		if (rsbac_adf_set_attr(R_CHANGE_DAC_FS_OWNER,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					T_NONE,
+					rsbac_new_target_id,
+					A_owner,
+					rsbac_attribute_value)) {
+			rsbac_printk(KERN_WARNING
+					"sys_setuid(): rsbac_adf_set_attr() for fsuid returned error");
+		}
+#endif
+	}
+#endif
+
+	return retval;
 
 error:
 	abort_creds(new);
@@ -765,6 +1121,12 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 	const struct cred *old;
 	struct cred *new;
 	int retval;
+
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
 
 	new = prepare_creds();
 	if (!new)
@@ -785,6 +1147,51 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 			goto error;
 	}
 
+#ifdef CONFIG_RSBAC
+	if(ruid != (uid_t) -1) {
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.process = task_pid(current);
+		rsbac_attribute_value.long_dummy = 0;
+		rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, ruid);
+		if(!rsbac_adf_request(R_CHANGE_OWNER,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_owner,
+					rsbac_attribute_value)) {
+			retval = -EPERM;
+			goto error;
+		}
+	}
+#ifdef CONFIG_RSBAC_DAC_OWNER
+	if(euid != (uid_t) -1) {
+		rsbac_pr_debug(aef, "calling ADF for euid\n");
+		rsbac_target_id.process = task_pid(current);
+		rsbac_attribute_value.long_dummy = 0;
+		rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, euid);
+		if(!rsbac_adf_request(R_CHANGE_DAC_EFF_OWNER,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_owner,
+					rsbac_attribute_value)) {
+			retval = -EPERM;
+			goto error;
+		}
+		rsbac_pr_debug(aef, "calling ADF for fsuid\n");
+		if(!rsbac_adf_request(R_CHANGE_DAC_FS_OWNER,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_owner,
+					rsbac_attribute_value)) {
+			retval = -EPERM;
+			goto error;
+		}
+	}
+#endif
+#endif
+
 	if (ruid != (uid_t) -1) {
 		new->uid = ruid;
 		if (ruid != old->uid) {
@@ -803,7 +1210,58 @@ SYSCALL_DEFINE3(setresuid, uid_t, ruid, uid_t, euid, uid_t, suid)
 	if (retval < 0)
 		goto error;
 
-	return commit_creds(new);
+	retval = commit_creds(new);
+
+#ifdef CONFIG_RSBAC
+	if (!retval) {
+		if(ruid != (uid_t) -1) {
+			rsbac_set_audit_uid(old->uid);
+			rsbac_new_target_id.dummy = 0;
+			rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, current_uid());
+			if (rsbac_adf_set_attr(R_CHANGE_OWNER,
+						task_pid(current),
+						T_PROCESS,
+						rsbac_target_id,
+						T_NONE,
+						rsbac_new_target_id,
+						A_owner,
+						rsbac_attribute_value)) {
+				rsbac_printk(KERN_WARNING
+						"sys_setresuid(): rsbac_adf_set_attr() returned error");
+			}
+		}
+#ifdef CONFIG_RSBAC_DAC_OWNER
+		if(euid != (uid_t) -1) {
+			rsbac_new_target_id.dummy = 0;
+			rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, current_euid());
+			if (rsbac_adf_set_attr(R_CHANGE_DAC_EFF_OWNER,
+						task_pid(current),
+						T_PROCESS,
+						rsbac_target_id,
+						T_NONE,
+						rsbac_new_target_id,
+						A_owner,
+						rsbac_attribute_value)) {
+				rsbac_printk(KERN_WARNING
+						"sys_setreuid(): rsbac_adf_set_attr() for euid returned error\n");
+			}
+			if (rsbac_adf_set_attr(R_CHANGE_DAC_FS_OWNER,
+						task_pid(current),
+						T_PROCESS,
+						rsbac_target_id,
+						T_NONE,
+						rsbac_new_target_id,
+						A_owner,
+						rsbac_attribute_value))	{
+				rsbac_printk(KERN_WARNING
+						"sys_setreuid(): rsbac_adf_set_attr() for fsuid returned error\n");
+			}
+		}
+#endif
+	}
+#endif
+
+	return retval;
 
 error:
 	abort_creds(new);
@@ -831,6 +1289,11 @@ SYSCALL_DEFINE3(setresgid, gid_t, rgid, gid_t, egid, gid_t, sgid)
 	struct cred *new;
 	int retval;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	new = prepare_creds();
 	if (!new)
 		return -ENOMEM;
@@ -849,10 +1312,50 @@ SYSCALL_DEFINE3(setresgid, gid_t, rgid, gid_t, egid, gid_t, sgid)
 			goto error;
 	}
 
-	if (rgid != (gid_t) -1)
+	if (rgid != (gid_t) -1) {
+#ifdef CONFIG_RSBAC
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.process = task_pid(current);
+		rsbac_attribute_value.group = RSBAC_GEN_GID(RSBAC_UM_VIRTUAL_KEEP, rgid);
+		if(!rsbac_adf_request(R_CHANGE_GROUP,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_group,
+					rsbac_attribute_value)) {
+			retval = -EPERM;
+			goto error;
+		}
+#endif
 		new->gid = rgid;
-	if (egid != (gid_t) -1)
+	}
+
+	if (egid != (gid_t) -1) {
+#ifdef CONFIG_RSBAC_DAC_GROUP
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.process = task_pid(current);
+		rsbac_attribute_value.group = RSBAC_GEN_GID(RSBAC_UM_VIRTUAL_KEEP, egid);
+		if (!rsbac_adf_request(R_CHANGE_DAC_EFF_GROUP,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_group,
+					rsbac_attribute_value)) {
+			retval = -EPERM;
+			goto error;
+		}
+		if (!rsbac_adf_request(R_CHANGE_DAC_FS_GROUP,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_group,
+					rsbac_attribute_value)) {
+			retval = -EPERM;
+			goto error;
+		}
+#endif
 		new->egid = egid;
+	}
 	if (sgid != (gid_t) -1)
 		new->sgid = sgid;
 	new->fsgid = new->egid;
@@ -889,12 +1392,32 @@ SYSCALL_DEFINE1(setfsuid, uid_t, uid)
 	struct cred *new;
 	uid_t old_fsuid;
 
+#ifdef CONFIG_RSBAC_DAC_OWNER
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	new = prepare_creds();
 	if (!new)
 		return current_fsuid();
 	old = current_cred();
 	old_fsuid = old->fsuid;
 
+#ifdef CONFIG_RSBAC_DAC_OWNER
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.process = task_pid(current);
+	rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, uid);
+	if (!rsbac_adf_request(R_CHANGE_DAC_FS_OWNER,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_owner,
+				rsbac_attribute_value)) {
+		abort_creds(new);
+		return old_fsuid;
+	}
+#endif
 	if (uid == old->uid  || uid == old->euid  ||
 	    uid == old->suid || uid == old->fsuid ||
 	    nsown_capable(CAP_SETUID)) {
@@ -910,6 +1433,25 @@ SYSCALL_DEFINE1(setfsuid, uid_t, uid)
 
 change_okay:
 	commit_creds(new);
+
+#ifdef CONFIG_RSBAC_DAC_OWNER
+	rsbac_target_id.process = task_pid(current);
+	rsbac_new_target_id.dummy = 0;
+	rsbac_attribute_value.owner = RSBAC_GEN_UID(RSBAC_UM_VIRTUAL_KEEP, uid);
+	if (rsbac_adf_set_attr(R_CHANGE_DAC_FS_OWNER,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_owner,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING
+				"sys_setfsuid(): rsbac_adf_set_attr() returned error\n");
+	}
+#endif
+
 	return old_fsuid;
 }
 
@@ -922,12 +1464,31 @@ SYSCALL_DEFINE1(setfsgid, gid_t, gid)
 	struct cred *new;
 	gid_t old_fsgid;
 
+#ifdef CONFIG_RSBAC_DAC_GROUP
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	new = prepare_creds();
 	if (!new)
 		return current_fsgid();
 	old = current_cred();
 	old_fsgid = old->fsgid;
 
+#ifdef CONFIG_RSBAC_DAC_GROUP
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.process = task_pid(current);
+	rsbac_attribute_value.group = RSBAC_GEN_GID(RSBAC_UM_VIRTUAL_KEEP, gid);
+	if (!rsbac_adf_request(R_CHANGE_DAC_FS_GROUP,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_group,
+				rsbac_attribute_value)) {
+		abort_creds(new);
+		return old_fsgid;
+	}
+#endif
 	if (gid == old->gid  || gid == old->egid  ||
 	    gid == old->sgid || gid == old->fsgid ||
 	    nsown_capable(CAP_SETGID)) {
@@ -992,6 +1553,11 @@ SYSCALL_DEFINE2(setpgid, pid_t, pid, pid_t, pgid)
 	struct pid *pgrp;
 	int err;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (!pid)
 		pid = task_pid_vnr(group_leader);
 	if (!pgid)
@@ -999,6 +1565,21 @@ SYSCALL_DEFINE2(setpgid, pid_t, pid, pid_t, pgid)
 	if (pgid < 0)
 		return -EINVAL;
 	rcu_read_lock();
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.process = find_pid_ns(pid, &init_pid_ns);
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		rcu_read_unlock();
+		return -EPERM;
+	}
+#endif
 
 	/* From this point forward we keep holding onto the tasklist lock
 	 * so that our parent does not change from under us. -DaveM
@@ -1066,6 +1647,11 @@ SYSCALL_DEFINE1(getpgid, pid_t, pid)
 	if (!pid)
 		grp = task_pgrp(current);
 	else {
+#ifdef CONFIG_RSBAC
+		union rsbac_target_id_t rsbac_target_id;
+		union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 		retval = -ESRCH;
 		p = find_task_by_vpid(pid);
 		if (!p)
@@ -1073,6 +1659,22 @@ SYSCALL_DEFINE1(getpgid, pid_t, pid)
 		grp = task_pgrp(p);
 		if (!grp)
 			goto out;
+
+#ifdef CONFIG_RSBAC
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.process = task_pid(p);
+		rsbac_attribute_value.dummy = 0;
+		if (!rsbac_adf_request(R_GET_STATUS_DATA,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			retval = -EPERM;
+			goto out;
+		}
+#endif
 
 		retval = security_task_getpgid(p);
 		if (retval)
@@ -1103,6 +1705,11 @@ SYSCALL_DEFINE1(getsid, pid_t, pid)
 	if (!pid)
 		sid = task_session(current);
 	else {
+#ifdef CONFIG_RSBAC
+		union rsbac_target_id_t rsbac_target_id;
+		union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 		retval = -ESRCH;
 		p = find_task_by_vpid(pid);
 		if (!p)
@@ -1110,6 +1717,22 @@ SYSCALL_DEFINE1(getsid, pid_t, pid)
 		sid = task_session(p);
 		if (!sid)
 			goto out;
+
+#ifdef CONFIG_RSBAC
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_target_id.process = task_pid(p);
+		rsbac_attribute_value.dummy = 0;
+		if (!rsbac_adf_request(R_GET_STATUS_DATA,
+					task_pid(current),
+					T_PROCESS,
+					rsbac_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			retval = -EPERM;
+			goto out;
+		}
+#endif
 
 		retval = security_task_getsid(p);
 		if (retval)
@@ -1272,11 +1895,32 @@ SYSCALL_DEFINE2(sethostname, char __user *, name, int, len)
 	int errno;
 	char tmp[__NEW_UTS_LEN];
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (!ns_capable(current->nsproxy->uts_ns->user_ns, CAP_SYS_ADMIN))
 		return -EPERM;
 
 	if (len < 0 || len > __NEW_UTS_LEN)
 		return -EINVAL;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.scd = ST_host_id;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
+
 	down_write(&uts_sem);
 	errno = -EFAULT;
 	if (!copy_from_user(tmp, name, len)) {
@@ -1322,10 +1966,30 @@ SYSCALL_DEFINE2(setdomainname, char __user *, name, int, len)
 	int errno;
 	char tmp[__NEW_UTS_LEN];
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (!ns_capable(current->nsproxy->uts_ns->user_ns, CAP_SYS_ADMIN))
 		return -EPERM;
 	if (len < 0 || len > __NEW_UTS_LEN)
 		return -EINVAL;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.scd = ST_net_id;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	down_write(&uts_sem);
 	errno = -EFAULT;
@@ -1417,6 +2081,12 @@ int do_prlimit(struct task_struct *tsk, unsigned int resource,
 	struct rlimit *rlim;
 	int retval = 0;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (resource >= RLIM_NLIMITS)
 		return -EINVAL;
 	if (new_rlim) {
@@ -1442,6 +2112,23 @@ int do_prlimit(struct task_struct *tsk, unsigned int resource,
 		if (new_rlim->rlim_max > rlim->rlim_max &&
 				!capable(CAP_SYS_RESOURCE))
 			retval = -EPERM;
+
+#ifdef CONFIG_RSBAC
+		if (!retval) {
+			rsbac_pr_debug(aef, "calling ADF\n");
+			rsbac_target_id.scd = ST_rlimit;
+			rsbac_attribute_value.rlimit.resource = resource;
+			rsbac_attribute_value.rlimit.limit = *new_rlim;
+			if (!rsbac_adf_request(R_MODIFY_SYSTEM_DATA,
+						task_pid(current),
+						T_SCD,
+						rsbac_target_id,
+						A_rlimit,
+						rsbac_attribute_value))
+				retval = -EPERM;
+		}
+#endif
+
 		if (!retval)
 			retval = security_task_setrlimit(tsk->group_leader,
 					resource, new_rlim);
@@ -1462,6 +2149,22 @@ int do_prlimit(struct task_struct *tsk, unsigned int resource,
 			*rlim = *new_rlim;
 	}
 	task_unlock(tsk->group_leader);
+
+#ifdef CONFIG_RSBAC
+	rsbac_new_target_id.dummy = 0;
+	if (rsbac_adf_set_attr(R_MODIFY_SYSTEM_DATA,
+				task_pid(current),
+				T_SCD,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_rlimit,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING
+				"sys_setrlimit(): rsbac_adf_set_attr() returned error");
+	}
+#endif
 
 	/*
 	 * RLIMIT_CPU handling.   Note that the kernel fails to return an error

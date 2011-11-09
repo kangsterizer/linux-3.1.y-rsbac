@@ -34,6 +34,7 @@
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
 #include <asm/tlb.h>
+#include <rsbac/hooks.h>
 #include <asm/mmu_context.h>
 
 #include "internal.h"
@@ -949,6 +950,12 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 	int error;
 	unsigned long reqprot = prot;
 
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target = T_NONE;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	/*
 	 * Does the application expect PROT_READ to imply PROT_EXEC?
 	 *
@@ -1072,6 +1079,33 @@ unsigned long do_mmap_pgoff(struct file *file, unsigned long addr,
 	error = security_file_mmap(file, reqprot, prot, flags, addr, 0);
 	if (error)
 		return error;
+
+#ifdef CONFIG_RSBAC
+	if (prot & PROT_EXEC) {
+		rsbac_pr_debug(aef, "[do_mmap() [sys_mmap()]]: calling ADF\n");
+		if (file) {
+			rsbac_target = T_FILE;
+			rsbac_target_id.file.device = file->f_dentry->d_inode->i_sb->s_dev;
+			rsbac_target_id.file.inode  = file->f_dentry->d_inode->i_ino;
+			rsbac_target_id.file.dentry_p = file->f_dentry;
+		} else {
+			rsbac_target = T_NONE;
+			rsbac_target_id.dummy = 0;
+		}
+		rsbac_attribute_value.prot_bits = prot;
+		if (!rsbac_adf_request(R_MAP_EXEC,
+					task_pid(current),
+					rsbac_target,
+					rsbac_target_id,
+					A_prot_bits,
+					rsbac_attribute_value))
+		{
+			rsbac_pr_debug(aef, "[do_mmap() [sys_mmap()]]: request not granted, my PID: %i\n",
+					current->pid);
+			return -EPERM;
+		}
+	}
+#endif
 
 	return mmap_region(file, addr, len, flags, vm_flags, pgoff);
 }

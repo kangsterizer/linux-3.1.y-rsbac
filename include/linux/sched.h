@@ -29,6 +29,9 @@
 #define CLONE_NEWPID		0x20000000	/* New pid namespace */
 #define CLONE_NEWNET		0x40000000	/* New network namespace */
 #define CLONE_IO		0x80000000	/* Clone io context */
+#ifdef CONFIG_RSBAC
+#define CLONE_KTHREAD           0x100000000ULL  /* clone a kernel thread */
+#endif
 
 /*
  * Scheduling policies
@@ -93,6 +96,10 @@ struct sched_param {
 
 #include <asm/processor.h>
 
+#if defined(CONFIG_RSBAC_CAP_LOG_MISSING) || defined(CONFIG_RSBAC_JAIL_LOG_MISSING)
+#include <rsbac/log_cap.h>
+#endif
+
 struct exec_domain;
 struct futex_pi_state;
 struct robust_list_head;
@@ -105,7 +112,11 @@ struct blk_plug;
  * List of flags we want to share for kernel threads,
  * if only because they are not used by them anyway.
  */
+#ifdef CONFIG_RSBAC
+#define CLONE_KERNEL	(CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_KTHREAD)
+#else
 #define CLONE_KERNEL	(CLONE_FS | CLONE_FILES | CLONE_SIGHAND)
+#endif
 
 /*
  * These are the constant used to fake the fixed-point load-average
@@ -2225,6 +2236,13 @@ static inline void mmdrop(struct mm_struct * mm)
 
 /* mmput gets rid of the mappings and all user-space */
 extern void mmput(struct mm_struct *);
+#ifdef CONFIG_RSBAC
+/* mmput gets rid of the mappings and all user-space
+ * not sleeping version. feeling like we have something in common ;)
+ * michal.
+ * */
+extern void mmput_nosleep(struct mm_struct *);
+#endif
 /* Grab a reference to a task's mm, if it is not already going away */
 extern struct mm_struct *get_task_mm(struct task_struct *task);
 /* Remove the current tasks stale references to the old mm_struct */
@@ -2252,7 +2270,12 @@ extern int disallow_signal(int);
 extern int do_execve(const char *,
 		     const char __user * const __user *,
 		     const char __user * const __user *, struct pt_regs *);
+
+#ifdef CONFIG_RSBAC
+extern long do_fork(unsigned long long, unsigned long, struct pt_regs *, unsigned long, int __user *, int __user *);
+#else
 extern long do_fork(unsigned long, unsigned long, struct pt_regs *, unsigned long, int __user *, int __user *);
+#endif
 struct task_struct *fork_idle(int);
 
 extern void set_task_comm(struct task_struct *tsk, char *from);

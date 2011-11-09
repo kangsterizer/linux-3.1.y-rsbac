@@ -1,0 +1,675 @@
+RSBAC Changes
+-------------
+1.4.5:
+	- Fix symlink's stat() call to return the real symlink size
+	  Fixes program that would assert on stat->s_size being the same size as when using readlink()
+	- Remove use of task_capability_lock.
+	- Fixes FS object hidding for most cases (still experimental)
+	- Backport fixes and internal features from 1.5:
+		- Add generic list option to use a separate kmem cache / slab per list.
+		- Use that option for several lists, general ACI, RC, ACL, UM.
+		- rkmem.h: define RSBAC_MAX_KMALLOC KMALLOC_MAX_SIZE
+		- Do not create our kmem caches with SLAB_DESTROY_BY_RCU, not needed.
+		- Big cleanup of DAZ code.
+		- Make DAZ path subselection by scanners optional, default is on in 1.4.
+		- Change DAZ module filename allocation to fixed size slabs.
+		- Remove rsbac_get_full_path_length(), which is not used anywhere any more.
+		- Use fixed DAZ filename size PATH_MAX, defined in include/linux/limits.h.
+		- DAZ: allocate memory with _unlocked functions where possible.
+		- Put device items into own slabs.
+		- Fix memory leak in case of failed list rehashing.
+	- Fix notification for setuid() etc: move after commit_creds().
+	- In Unix send and receive, use remote peercred.pid, if local is not available.
+	- Fix NULL pointer deref, if sk_socket is unset.
+	- Move SEND and RECEIVE for Unix sockets from net/socket.c to net/unix/af_inet.c.
+	- This makes interception code cleaner and more reliable, specially for named
+	  sockets.
+	- Fix file_p handling in list read functions.
+	- Use mntget() instead of path_get() in rsbac_read_open().
+
+1.4.4:
+	- Port to 2.6.33.2
+	- Fix RC check for CREATE right on new objects.
+	- Backport rsbac_read_open() and rsbac_read_close() fixes from 1.5.
+
+1.4.3:
+	- Depend CONFIG_RSBAC_RC_LEARN on CONFIG_RSBAC_DEBUG.
+	- Show transaction number in learning info messages.
+	- Add transaction names for human use and set names for learn transactions.
+	- Move CREATE checks in rc_main.c into common function rc_check_create() with lea
+	- Fix proc function return types in reg samples.
+	- Remove rsbac_read_lock(), rsbac_write_lock() etc.
+	- Remove rsbac_vmalloc, rsbac_vkmalloc, rsbac_vfree, rsbac_vkfree.
+	- New kernel config RSBAC_SWITCH_BOOT_OFF: 'Allow to switch modules off with kernel parameter'
+	- Join ta_committing and ta_forgetting to ta_committing.
+	- Fix three small memory leaks.
+	- Show program path in CAP learning messages and use INFO level, not DEBUG.
+	- Allow SCD mlock in PM.
+	- Show program path in AUTH learning messages.
+	- When committing or forgetting, lock per list and make other list functions sleep while committing or forgetting.
+	- Optionally put learning mode results into transactions, one per module.
+	- Add global RC learning mode for role rights to types.
+	- Control CAP learning mode switch in CAP module.
+	- Implement CAP learning mode for user and program max_caps.
+	- Move AUTH auth_program_file kernel-only attribute to GEN program_file.
+	- Fix lockup in rehashing, after failing of new hashed struct memory allocation, forgot to spin_unlock. Alloc unlocked instead, better anyway.
+	- Add notes for locking to generic lists.
+	- Store compare results in variable to avoid doing same compare twice.
+	- Only reset curr pointer, if same as removed item (usually the case).
+	- Show rcu_batches_completed() in proc gen_list_counts.
+	- Store nr_hashes in variable, if used after unlocking - might change.
+	- Fix *remove_count(): calling rcu_free on wrong updated pointer, so store.
+	- Do not use count values for checks, can be wrong. Always use head.
+	- Allow rcu rate >= 1 for testing purposes, config help still says 100.
+	- Reorder syscall case struct by frequency of calls (stats from real systems).
+	- Ifdef syscalls for disabled modules instead of returning error in them.
+	- Make RCU rate limit boot and runtime configurable.
+
+1.4.2:
+	- Change generic lists to use RCU instead of rw spinlocks
+	- Show a total of reads and writes in list statistics in gen_lists_count
+	- Disable rsbac attributes store on fuse
+	- Fix RC dev inheritance: Explicitely set minor to 0 before getting major attr
+	- Use Pseudo also for RC ADF debug messages
+	- Use RCU callbacks with a rate limit of 1000/s, use sync, if exceeded, configurable in kernel config
+
+1.4.1:
+	- Support ANY value 255 for NETLINK protocol
+	- Return -EPERM in sys_rsbac_um_check_account, if user does not exist.
+	- Add config option RSBAC_ENFORCE_CLOSE to really deny close, if decided.
+	- Check CLOSE requests in RC.
+	- Add SCD target videomem and kernel attribute pagenr.
+	- Split SCD kmem into kmem and videomem, split hooks in drivers/char/mem.c.
+	- Allow R_MODIFY_SYSTEM_DATA notifications on SCD in adf_check.c.
+	- ext4 secure delete support
+1.4.0:
+	- Added VUM (Virtual User Management) support	
+	- OTP support for UM
+	- Converted the common code to 2.6 only. From now on changes will be 2.6 only as well.
+1.3.5:
+	- Check crypto return codes (2.6) and fixed UM password hashing.
+	- Fix compilation issues for "disable writing to disk". See bug #98.
+	- Safety mesures for inheritence in case of null pointers.
+	- Disable debug message "rsbac_get_parent(): oops - d_parent == dentry_p".
+	- Increase string lengths in user and group items significantly.
+	- Add RSBAC memory slab 384 for new user item sizes.
+	- Do not try to write lists, if device is not writable.
+	- Do not sleep in rsbac_get_vfsmount(), can be called while atomic.
+	- Do not write attributes on Oracle Cluster FS 2 (OCFS2).
+	- Complete hook review.
+1.3.4:
+	- No changes :)
+1.3.3:
+	- Change FD cache counters to 64 Bit to avoid wrapping.
+	- Make FD Cache xstats output look nicer.
+	- Make an adf_request permission check when modyfing capabilities is the new set >> old one.
+	- Copy auth_last_auth on CLONE, gets reset on EXECUTE.
+	- Provide pid and process name in some UM debug output.
+	- 2.6 WARNING: sysrq key 'w' is GONE! no more wake up trigger possible
+1.3.2:
+	- mark FS_OBJ_HIDE as EXPERIMENTAL and depends on it
+	- clean compilation warnings, data types and such.
+	- removed double "ready" message in rsbac_do_init()
+	- disable partner process check for unix socks by default.
+	- Show fd cache hits/misses ratio in xstats. Really inline rsbac_is_initialized().
+	- Change fd cache descriptor to get rid of separate compare function in 2.4 kernels.
+	- Add FD inherited attribute value cache. Hash device list. Allow per-list max_ite
+ms_per_hash.
+	- Change return code in AUTH syscalls to INVALIDATTR, if group or eff/fs support i
+s not compiled in.
+	- port from ex 1.4 trunk: do not intercept PTRACE_DETACH request
+	- rewrite of error handling to be more logical in rsbac_handle_filldir().
+	- Also take partner pid from other on Unix socket stream connects.
+	- Accept syscalls from tools with all versions 1.3.x.
+	- Take partner process on UNIXSOCK CONNECT from other->sk_peercred.
+	- Try to get partner process for UNIXSOCK RECEIVE from other sources, if peercred is not filled.
+	- New error code INVALIDLIST, if list handle is invalid.
+	- New jail flags for syslog jail. 
+	- Extra check before reiserfs secure_delete call.
+	- Fix Dazuko device registration in 2.6. Return INVALIDPOINTER for invalid pointer
+s in some syscalls.
+	- lvm/md automount fix
+	- Fix oops on loop umounts: device was auto-mounted, if there were dirty lists. Ne
+ver auto-mount loop devices.
+	- 
+1.3.1:
+	- Add xstats counter for get_parent calls.
+	- Fix sort order of network templates.
+	- Add missing DAZ request in vector. Add role number in RC syscall denied log message.
+	- Create bitmasks for each module of which requests it is interested in and only call request_xy and set_attr_xy, if necessary.
+	- small performance tunning: removed usage of rsbac_list_compare_u32 (always use memcmp which is asm-tuned per arch)
+	- Reduce stack usage in list, ACL and RC init.
+	- Optimize list hash functions with bit masks instead of % operation.
+	- make sure that rsbac_list_max_hashes and rsbac_list_lol_max_hashes are always potential of 2 and warn the user at configuration time. (127 will round to 64).
+
+1.3.0:
+	- Restarted 1.3 tree from the 1.2.7 release
+	- System call rsbac_version to return numeric version without checking the caller’s version provided to syscall.
+	- JAIL: allow_parent_ipc to allow IPC into parent jail. Useful with Apache mod_jail and others. Needs another process attribute jail_parent
+	- JAIL: add a flag to allow suid/sgid files and dirs.
+	- Optionally check CHANGE_OWNER for PROCESS targets also as CHANGE_OWNER on the new USER. This allows fine grained control also in RC and ACL models.
+	- Change network templates to hold up to 25 ip networks and up to 10 port ranges.
+	- Automatic online resizing of per-list hash table. As list identifiers are pointers to list headers, which must not change, the arrays of list heads are allocated separately and accessed through a pointer.
+	- Change named UNIX sockets to be new filesystem target type T_UNIXSOCK and unnamed to be new IPC type anonunix (like pipes)
+	- RC role def_unixsock_create_type, which overrides the def_(ind_)fd_create_type. Default value use_def_fd.
+	- Change aci, acl and auth devices lists to use RCU on 2.6 kernels
+	- Dazuko udev support
+	- UM password history with configurable length to avoid password reuse.
+	- Update HTML doc in Documentation/rsbac, or point all docs to the website.
+	- Hide dir entries a process has no SEARCH right for
+	- Limit number of items per single list to 50000, so real limit is at 50000 * nr_hashes.
+	- New request type AUTHENTICATE against USER targets. No authentication against RSBAC UM without this right in RC and ACL.
+	- Complete hook review with several small fixes.
+	- More detailed JAIL decision logging for IPC and UNIXSOCK targets with rsbac_debug_adf_jail.
+
+1.2.7:
+	- Use new PaX flags location at current->mm->pax_flags.
+	- Removed remaining non-RSBAC code
+1.2.6:
+	- DAZ Renaming of files from non-scanned to scanned directory
+	  now works correctly (does not cache results from non scanned
+	  as CLEAN - and/but keep INFECTED status if set when moving file
+	  from scanned to non-scanned)
+	- DAZ unscanned files decision is now DO_NOT_CARE instead of
+	  GRANTED
+	- Full pathes returned by RSBAC do not display double
+	  (or more) / with double (or more) mounts anymore.
+	  ex: /home//bob => /home/bob
+	  This allows DAZ path based scanning to function normally.
+	- Fix setting of RC IPC type with def_ipc_create_type.
+	- Added ptrace hook for m32r architecture.
+	- New kthread notification code.
+	- Fix xstats to include GROUP targets.
+	- Mark lists dirty again, if saving failed.
+	- Fix FF to allow file READ (but not READ_OPEN) even with execute_only.
+	- Stop making SEND and RECEIVE requests for STREAM sockets, if
+	  CONFIG_RSBAC_NET_OBJ_RW is not set.
+	- Notify that shm is destroyed only when it really is (thanks rtp).
+	- Minor compile fixes
+
+1.2.5: - AUTH config switch to globally allow setuid to user (real, eff, fs),
+         who started the program. Boot time option and proc setting to enable
+         per uid type.
+       - Show missing Linux caps in JAIL like in CAP.
+       - Change device attribute backup to use a list of attribute objects
+         instead of traversing /dev and possibly missing some.
+       - Device attribute inheritance: Use values at type:major as default for
+         type:major:minor.
+       - Add a generic request directly in sys_ioctl with new request type
+         IOCTL on DEV and NETOBJ target.
+       - Finish ioctl extra interception with GET_STATUS_DATA and
+         MODIFY_SYSTEM_DATA, e.g. for SCSI.
+       - Store remote IP when process accepted its first INET connection as
+         process attribute and pass on to children. Log remote IP in request
+         log.
+       - Symlink redirection based on remote IP.
+       - Optional UM password limits: Min length, non-alpha char required
+       - Fix EINVALIDPOINTER when changing UM password with passwd via
+         pam_rsbac.
+       - Complete system call interception review with additional hooks where
+         necessary. See Interceptions log for details.
+       - Change USER attribute backup to list of known items.
+       - Fix dereference bug related to rsbac_get_parent: set_attr call in
+         do_exec sometimes used file struct after freeing.
+       - Fix 2.6.11 random file not found errors, caused by symlink redirection
+         and ext2/ext3 kernel fs layer violation.
+       - Add CREATE and DELETE notifications in um syscalls.
+       - Make RC apply default_{user|group}_create_type on {USER|GROUP} CREATE.
+       - Configure module switching per module. Only allow switching stateful
+         models on after switching off with extra kernel config switch.
+       - Review all devision modules, whether they decide on all relevant
+         request to target combinations and whether they protect all relevant
+         attributes.
+       - Full review of all interceptions to make them locks safe
+       - Fix initrd problems showing up with the Adamantix kernel
+
+1.2.4: - Per dir FD type RC default_fd_create_type
+       - Full kernel space user management as a replacement for /etc/passwd,
+         /etc/shadow, /etc/group
+       - Add GROUP target type
+       - Change RC copy_role to be allowed with role in admin_roles
+       - Log full program path, get dentry from mappings for this
+       - Make RSBAC remote logging target configurable at boot or runtime.
+         Suppress remote logging, if address or port is 0.
+       - audit_uid: Default value "unset". Set at CHANGE_OWNER away from a uid
+         != 0, kept, inherited to child processes and logged. Allows to log
+         actions of users who did an su etc. Configurable additional uid per
+         program which works like uid 0, e.g. for SSHD privilege separation
+         (new attr auid_exempt).
+       - AUTH protection for Linux group IDs.
+       - New kernel flag: rsbac_softmode_once: Sets softmode, but denies
+         setting it again during runtime. For those systems that for some
+         reason must start in softmode, disable it and do not want to have it
+         set again later.
+       - New kernel flag: rsbac_softmode_never: Disallows setting softmode
+         during this runtime.
+       - Keep last UM authenticated users in a per-process attribute
+         auth_last_auth. Allow processes with auth_may_set_cap flag to set
+         last_auth.
+       - New kernel flag: rsbac_freeze: Disallows all modifying administration
+         in RSBAC syscalls. Added new switch target FREEZE.
+       - Make PaX default flags configurable.
+       - RC check access to UNIX socket partner process
+       - Transaction support for administration: begin, add a set of desired
+         changes, commit atomically or forget.
+       - Add RC copy_type, to be allowed with ADMIN right.
+       - User Management "exclusive mode": Only users and groups known to
+         RSBAC UM can be reached. Kernel parameter and /proc setting to
+         temporarily disable the restrictions.
+       - Randomize UM password salt better
+       - Optionally randomize transaction numbers
+       - Reduce memory consumption of rsbac_do_init.
+       - Further reduce RSBAC's stack usage to prepare for 4 KB kernel stack
+         size.
+       - Password protection for transaction operations refresh, forget, commit
+       - Add hooks with MODIFY_SYSTEM_DATA on SCD network to queueing
+         administration
+       - Warn explicitely, if CAP max_caps do not get applied because of
+         running in softmode.
+       - Update Dazuko interface to 2.0.5
+       - Update defconfig in all archs 
+       - ACLs for Users and Linux groups
+       - Extend AUTH auth_may_setuid flag with values last_auth_only and
+         last_auth_and_gid to allow last authenticated uid to be reached.
+         The second allows all group ids, too, because you cannot auth for
+         them. No longer add process cap at UM authentication, but rather
+         check at CHANGE_OWNER with last_auth process attribute.
+       - Fix severe Oopses when forgetting transactions with lists of lists.
+       - Optionally log all denied calls to capable() function with
+         CONFIG_RSBAC_CAP_LOG_MISSING 
+
+1.2.3: - Port to linux kernel 2.6.0-test with LSM
+       - New JAIL flag allow_clock for ntpd encapsulation
+       - Removed LSM support (see http://rsbac.org/documentation/why_rsbac_does_not_use_lsm).
+       - Global AUTH learning mode
+       - AUTH cap inheritance from parent dir (single step only, not
+         accumulated)
+       - RC pretty-print config output
+       - Remove 2.2 kernel support.
+       - Improve AUTH learning mode to use special value for same user
+       - Trigger AUTH learning mode per program
+       - Show type, name and mode of new object in T_DIR/CREATE request log. 
+       - Statix PaX support decision module
+       - Faked (root) user ID in ''getuid()'' to make stupid programs with uid
+         checks happy.
+       - Full log separation between syslog and RSBAC log, also for debug
+         messages (except rsbac_debug_aef). RSBAC now really shuts up, if
+         rsbac_nosyslog is set, and sends everything to RSBAC own log only.
+       - ACL learning mode for user rights to filesystem objects, parameter
+         rsbac_acl_learn
+       - New RC syscall to get current role
+       - mac_trusted_for_user with list instead of single user.
+       - Block fchdir outside the jail, if some stupid program opened a dir,
+         called rsbac_jail() and then called fchdir(). Done by simply closing
+         all open dirs after rsbac_jail() called chroot.
+       - Fixed some JAIL bugs found, all relevant chroot items from regression
+         suite solved. Not urgent enough and too many changes to make a 1.2.2
+         bugfix.
+       - Added JAIL Linux Capability restriction
+       - Dazuko integration as fixed module, as replacement for MS module
+       - Dazuko result caching with generic lists (as in old MS module)
+       - AUTH special value for eff and fs uid (thanks to Arnout Engelen)
+       - New optional rsbac_jail parameter max_caps, which limits the Linux
+         capabilities of all processes in the jail
+       - Optionally hide process ids without GET_STATUS_DATA in /proc/
+         dir listing
+       - /proc/rsbac-info/active to get current version and list of active
+         modules: One line each for version, mode: Secure/Softmode/Maintenance,
+         softmode: available/unavailable and one line per module: on/softmode/off
+       - Solve the new "kernel complains about vmalloc with lock" uglyness:
+         removed all vmalloc use in 2.6 kernels, too many workarounds needed.
+       - Protect sysfs objects in 2.6 kernels
+       - Added three real life example REG modules to rsbac/adf/reg,
+         contributed by Michal Purzynski
+       - Changed DEV list descriptor to be compatible between 2.4 and 2.6
+         kernels
+       - Added RC types and compatibility settings for USER targets
+       - Allow to set a different RC boot role than that of user root
+       - Add RC process type for kernel threads
+
+1.2.2: - Added ms_need_scan attribute for selective scanning
+       - MS module support for F-Protd as scanning engine
+       - ms_need_scan FD attribute for selective scanning
+       - JAIL flag allow_inet_localhost to additionally allow to/from
+         local/remote IP 127.0.0.1
+       - RSBAC syscall version numbers
+       - New RES module with minimum and maximum resource settings for
+         users and programs
+       - Moved AUTH module to generic lists with ttl
+       - Added new requests CHANGE_DAC_(EFF|FS)_OWNER on PROCESS targets
+         for seteuid and setfsuid (configurable)
+       - Added caps and checks for effective and fs owner to AUTH module
+         (optional)
+       - Changed behaviour on setuid etc.: Notification is always sent, even
+         if the uid was set to the same value. This allows for restricted RC
+         initial roles with correct role after setuid to root.
+       - New Process Hiding feature in CAP module
+       - Delayed init for initial ramdisks: delay RSBAC init until the first
+         real device mount.
+       - rsbac_init() syscall to trigger init by hand, if not yet
+         initialized - can be used with e.g. rsbac_delayed_root=99:99, which
+         will never trigger init automatically.
+       - MS module support for clamd as scanning engine.
+       - Almost complete reimplementation of the MAC model with many new
+         features.
+       - New system role 'auditor' for most models, which may read and flush
+         RSBAC own log.
+
+1.2.1: - Added support for all other architectures.
+       - Cleaned up rsbac syscall filesystem name lookup and target type
+         checks.
+       - New module JAIL: preconfigured process encapsulation (see kernel
+         config help).
+
+1.2.0: - Moved most lists to generic lists, splitting up between modules on
+         the way (GEN = general for all modules).
+       - DS for each module only included, if module is compiled in.
+       - New Linux Capabilities (CAP) module
+       - Split system_role into mac_role, fc_role, etc. Please do not use
+         old A_system_role attribute any longer.
+       - Changed rsbac_get/set_attr interface to include target module
+       - Added module guessing from attribute into sys_rsbac_get/set_attr,
+         if module is not given (value SW_NONE).
+       - Added user and RC role based symlink redirection
+       - Added network and firewall config protection as SCD network and
+         firewall targets
+       - Added NETDEV, NETTEMP and NETOBJ targets for network access control.
+       - Added network templates for default NETOBJ attribute values
+       - Renamed /rsbac dir to /rsbac.dat to avoid name conflicts.
+       - RC model with unlimited roles and types
+       - Selective dir tree disabling of Linux DAC
+       - Generic list ordering (needed for templates and optimization)
+       - List optimization
+       - Generic time-to-live support in generic lists (new on-disk version)
+       - Support time-to-live for ACL group members and ACL entries
+       - copy_net_temp
+       - Individual module soft mode
+       - Support time-to-live for RC entries
+       - Backport to 2.2.20
+
+1.1.2: - Own RSBAC memory allocation functions. Own RSBAC mem slabs in 2.4
+         kernels.
+       - Generic lists - simply register your list item sizes with filename
+         and persist flag, and a persistent list will be kept for you.
+       - Generic lists of lists, two level version.
+       - Moved pm_data_structures.c to new lists with proc backup files
+         Attention: There is no auto-update from older versions possible!
+       - proc backup files for RC and ACL are now optional
+       - New proc subdir pm, replaces old write_list call
+       - rsbac_pm write_list call removed
+       - New FD aci version with new rc_initial_role and 16 bit ff_flags
+       - New FF flag append_only, which limits all write accesses to
+         APPEND_OPEN and WRITE
+       - Fix for rename hole: rename could replace and thus delete an
+         existing file without DELETE check. Also performs secure_delete, if
+         necessary
+       - New rsbac_mount hook in change_root for initial ramdisk
+       - Fixed missing Linux check in bad_signal
+       - Added optional switch rsbac_dac_disable to disable Linux filesystem
+         access control
+       - Added count support for multiple mounts
+       - Added optional switch rsbac_nosyslog to temporarily disable logging
+         to syslog
+       - Added config option for DEBUG code
+
+1.1.1: - New target type FIFO, with a lot of cleanup, e.g. IPC type fifo
+         removed
+       - MAC module reworked, including MAC-Light option
+       - Several bugfixes
+       - Port to 2.4.0, 2.4.1 and 2.4.2
+       - New Makefiles with lists for 2.4 and without for 2.2 kernels
+         (Thanks to Edward Brocklesby for samples)
+       - init process default ACI now partly depends on root's ACI
+       - Optional interception of sys_read and sys_write.
+         Attention: you might have to add READ and WRITE rights to files,
+         fifos, dirs and sockets first, if upgrading from an older version
+       - REG overhaul. Now you can register syscall functions, everything is
+         kept in unlimited lists instead of arrays and registering is
+         versioned to allow for binary module shipping with REG version
+         checks.
+       - Inheritance is now fixed, except for MAC model
+       - MAC: optional inheritance, new option Smart Inheritance that tries
+         to avoid new attribute objects (see config help)
+       - New soft mode option: all decisions and logging are performed, but
+         DO_NOT_CARE is returned to enforcement. Off by default. See config
+         help for details.
+       - Optional initialization in extra rsbac_initd thread.
+
+1.1.0: - Port to 2.4.0-test11
+       - Interception of sys_mmap and sys_mprotect added. Now execution of
+         library code requires EXECUTE privilege on the library file, and
+         setting non-mmapped memory to EXEC mode requires EXECUTE on target
+         NONE.
+       - MAC Light option by Stanislav Ievlev added. See kernel config help or
+         modules.htm.
+
+1.0.9c:
+       - Port to 2.4.0-test{[789]|10}, this means major changes to the lookup and
+         inheritance code - of course #ifdef'd
+       - Change string declarations to kmalloc. On the way moved
+         MAX_PATH_LEN restriction from 1999 to max_kmalloc - 256
+         (>127K).
+       - Renamed several PM xy.class to xy.object_class for C++
+         compatibility
+       - Added SCD type ST_kmem
+       - Changed rc_force_role default to rc_role_inherit_parent,
+         terminated at root dir with old default rc_role_inherit_mixed.
+         This makes it much easier to keep a dir of force-roled binaries.
+1.0.9b:
+       - Port to 2.3.42 - 2.3.99-pre3
+       - Port to 2.2.14 - 2.2.16
+       - 32 Bit Uid/Gid with new attribute versions
+       - User and program based logging
+       - AUTH capability ranges
+       - Made write to MSDOS fs a config option, so use it on your own risk
+         (see config help)
+       - MAC levels 0-252
+       - Added config option for ioport access (X support)
+      
+1.0.9a:
+       - Added group management to ACL module.
+       - Removed CONFIG_RSBAC_SYNC option.
+       - Added module hints to logging
+       - Added RC separation of duty (see models.htm)
+       - Added RC force role inherit_up_mixed and made it default setting
+
+1.0.9: - Added registration of additional decision modules (REG)
+       - Wrote decision module examples (see README-reg and reg_samples dir)
+       - Port to 2.2.8, 2.2.9, 2.2.10, 2.2.11, 2.2.12 (pre versions)
+       - Heavily changed RC model: Now it has a distinguished role-to-type
+         compatibility setting for each request type, instead of one setting
+         for all request types. This allows for much finer grained access
+         control.
+         Unfortunately there was no way to update existing role settings,
+         so those have to be reentered by hand. Still, the types entries are
+         kept.
+       - Set all MSDOS based file systems to read-only, because inode
+         numbers are likely to change between boots.
+       - Added Access Control List module. ACLs are kept on FILE, DIR,
+         DEV, IPC, SCD and PROCESS targets (IPC and PROCESS have only
+         one default ACL each). Each entry contains subject type (user,
+         rc_role, group), subject id and the rights this subject has. Also,
+         rights are inherited from parents and from a target specific default
+         ACL.
+         See html/models.htm for details.
+       - Added optional full path logging.
+
+1.0.8a:
+       - Port to 2.2.7
+       - File Flag no_execute added to prevent execution, e.g. of user
+         binaries under /home tree. Can be circumvented by scripts via
+         'interpreter scriptname'.
+
+1.0.8: - Port to 2.2.1
+       - Added /proc/rsbac-info/backup to provide an easier means of backup
+         for not device dependent stuff. To be extended.
+       - Added new Role Compatibility (RC) module.
+       - New on-disk binary layout, auto update from all versioned data
+         (1.0.5 upwards).
+       - AUTH module added to support proper authentification by enforcing
+         externally granted CHANGE_OWNER capabilities.
+       - Save to disk inconsistency in PM sets fixed.
+       - MAC categories added, but limited to a fixed number of 64. Apart
+         from that, the MAC module categories are as proposed in the
+         Bell-LaPadula model.
+       - Port to 2.2.2
+       - Port to 2.2.3 with minor changes
+       - Port to 2.2.4
+       - Port to 2.2.5
+
+1.0.7a:
+       - Added alpha support (with Shaun Savage). Has different storage sizes,
+         so default useraci does not work and you need a maint kernel.
+       - Added new error detection features for file/dir entries.
+       - Increasing of NR_FD_LISTS is now handled differently for error
+         detection reasons. See README-nrlists.
+       - Marked init functions as __init - though saving a few KB doesn't
+         make such a big difference while using RSBAC... ;)
+       - Fixed memory leaks in write_*_list while introducing vmalloc for
+         large lists. The number of file/dir lists is now only a matter of
+         performance and available memory.
+       - Added two flags to File Flags
+       - Port to 2.2.0-pre6
+       - Added secure deletion/truncation, needs a config switch to be
+         enabled. If on, all files marked with (inheritable) FF-flag
+         secure_delete and all files marked as PM-personal data are zeroed on
+         deletion and truncation - if the regarding modules are switched on.
+
+1.0.7: - Port to 2.1.131
+       - Added more fs types to non-writable: smbfs, ncpfs, codafs - so
+         there should be no writing on network mounts (unfortunately there
+         is no afs SUPER_MAGIC)
+       - Added configuration option NO_DECISION_ON_NETMOUNTS, which
+         additionally turns off all decisions for all these fs, so that
+         they are completely ignored
+       - Added attribute inheritance: Some attributes for files and dirs
+         have a special value 'inherit'. If this is set, the value of the
+         parent dir's attribute is used instead. This mechanism ends on
+         fs boundaries - each fs root dir gets old style standard values,
+         if attribute is set to 'inherit'.
+         Currently security_level, object_category and data_type are
+         inheritable.
+       - Added configuration option DEF_INHERIT. If set, default values for
+         inheritable attributes are *inherit, rather than the old default.
+         This option setting should not differ between different RSBAC
+         kernels to avoid deeper confusion for administrators and
+         rsbac_check().
+       - To support inheritance, added parameter inherit to both get_attr
+         system calls. If on, the effective (possibly inherited) value is
+         returned, if off, the real value is returned.
+       - Corrected a security hole in receiving from / sending via datagram
+         sockets (thanks to Simone). Now a read/append open and a close
+         request are done for every datagram (if net support is configured,
+         as usual).
+         Attention: Programs that open an UDP socket as one user (e.g. root)
+                    and then setuid to another (e.g. bin) may not be able
+                    to access that socket, if the new user has insufficent
+                    rights! (see config help)
+         Checking of net access can as before be turned on/off via
+         CONFIG_RSBAC_NET.
+       - Worked on rsbac_check(). Is more stable now, but should only be
+         called under maximum of moderate load.
+
+1.0.6: - Moved to 2.1.128
+       - Cleaned up old includes in syscalls.c
+       - Added RSBAC own logging in /proc/rsbac-info/rmsg, to be accessed
+         by modified klogd or sys_rsbac_log, restricted by most modules to
+         security officers.
+         Additionally, logging to standard syslog can be turned off to hide
+         security relevant log from all but those with explicit access.
+       - Added module File Flags with attribute ff_flags for FILE/DIR
+         targets
+       - Added auto-update of last version attributes (only FD changed
+         though)
+       - Changed ms_trusted from boolean to tristate: non-trusted, read,
+         full
+       - Fixed rm -r hang bug
+       - Added consistency check for RSBAC items, which can remove items for
+         deleted inodes (ext2 only) and entries containing only default
+         values (FILE/DIR targets only). It also recalculates item counts.
+       - Added sys_rsbac_check to trigger this check.
+
+1.0.5:
+       - Rewrote most of attribute saving to disk. Now disk writing is never
+         done with a spinlock held, increasing stability significantly
+         (is this a taboo? if yes, where is it documented?)
+       - Changed write-to-disk behaviour: The old immediate write is no
+         longer default, but optional (CONFIG_RSBAC_SYNC_WRITE). Instead,
+         sys_rsbac_write can be used from user space or a kernel daemon can
+         be activated to write changes automatically every n seconds
+         (CONFIG_RSBAC_AUTO_WRITE)
+       - Added kernel param rsbac_debug_auto for the daemon - gives a good
+         overview of attribute change rate
+       - Added proc interface for statistics and many RSBAC settings
+       - Added rsbac_adf_request calls MODIFY_SYSTEM_DATA to sysctl.c
+       - Wrote man pages for all RSBAC syscalls (in Documentation/rsbac/man)
+       - Added version information and check for all file/dir/dev aci and
+         for log_levels
+       - Added some more scan strings to Malware Scan module, had to change
+         string representation to a more general way
+
+1.0.4:
+       - Port via 2.1.115 and 2.1.124 to 2.1.125
+       - IPC targets: changed ids for sockets from pid/fd combination to
+         pointer to sock structure, including (many) changes in the
+         handling.
+       - Added socket level scanning (tcp and udp) to module Malware Scan.
+         This feature can stop malware while still being transferred to
+         your system. Added new attributes for IPC, process and file/dir
+         targets to manage socket scan.
+       - Reordered configuration options
+       - Added CONFIG_RSBAC_NO_WRITE to totally disable writing to disk for
+         testing purposes and kernel parameter rsbac_debug_no_write to
+         temporarily disable disk writing 
+       - Added CONFIG_RSBAC_*_ROLE_PROTection for all role dependant
+         modules: Now change-owner (setuid etc.) can be restricted between
+         users with special roles - see configuration help for details
+       - Some more bugfixes, mostly to decision modules
+
+1.0.4-pre2:
+       - Port to 2.1.111
+       - Attribute mac_trusted_for_user added to FILE aci. Value meanings:
+         RSBAC_NO_USER (-3): program is not MAC-trusted
+         RSBAC_ALL_USERS (-4): program is MAC-trusted for all users
+         other user-ID: program is MAC-trusted, if invoked by this user
+         Especially the last is useful for daemon programs that can be
+         started by all users.
+         Init process is checked, too, but is MAC-trusted by default.
+       - Syscalls rsbac_mac_set/get_max_seclevel added. Now a process can
+         reduce its own maximum security level. Useful for wrapper daemons
+         like inetd after forking and before invoking another program.
+       - Object dependent logging #ifdef'd with configuration option.
+       - Configuration option 'Maintenance Kernel' added. Disables all other
+         options.
+       - removed CONFIG_RSBAC_ADMIN and rsbac_admin() stuff - now we have
+         capabilities, and there is no suser() anymore to extend
+       - changed locking for Data Structures component from semaphores to
+         read/write spinlocks
+       - added (U)MOUNT requests for target DEV to sys_(u)mount. Now both
+         target dir and device are checked for access (MAC: dir: read-write,
+         dev: depending on mount mode read or read-write). Note: After
+         mount, all file/dir accesses on this device are checked as usual.
+       - Moved checks for valid request/target combinations from MAC module
+         to extra functions in rsbac/adf/check.c.
+
+1.0.3: - Target DEV added. Now devices can get their own attributes based
+         on major/minor numbers. Attributes based on their file representations
+         in /dev are no longer used for open, but still for all other calls.
+         MAC decisions on open requests for devices must be explicitely enabled
+         by mac_check to keep system bootable.
+         Short rule: Only if contents is accessed, DEV attributes apply.
+       - Attribute object_type removed, was not used anyway and maintained in
+         linux structures.
+       - Attributes log_array_low and log_array_high for FILE/DIR/DEV added,
+         providing individial request based logging for those objects.
+       - PM module: if DEV is personal_data, neccessary access is checked
+         for new class DEV (can be changed to custom class)
+       - A couple of minor bugfixes done
+
+1.0.2A: - Port to 2.0.34
+        - A few #ifdef CONFIG_RSBAC_USE_RSBAC_OWNER were missing, causing
+          error messages "rsbac_set/get_attr returned error" -> added
+
+
+13/Jun/2001
+Amon Ott <ao@rsbac.org>

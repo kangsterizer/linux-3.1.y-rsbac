@@ -21,6 +21,8 @@
 
 #include "proto.h"
 
+#include <rsbac/hooks.h>
+
 #define DEBUG	DBG_MEM
 #undef DEBUG
 
@@ -275,6 +277,26 @@ long arch_ptrace(struct task_struct *child, long request,
 	unsigned long tmp;
 	size_t copied;
 	long ret;
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rcu_read_lock();
+	rsbac_target_id.process = task_pid(child);
+	rsbac_attribute_value.trace_request = request;
+	if (!rsbac_adf_request(R_TRACE,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_trace_request,
+				rsbac_attribute_value))
+	{
+		rcu_read_unlock();
+		return -EPERM;
+	}
+	rcu_read_unlock();
+#endif
 
 	switch (request) {
 	/* When I and D space are separate, these will need to be fixed.  */

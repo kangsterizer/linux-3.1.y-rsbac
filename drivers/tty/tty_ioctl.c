@@ -24,6 +24,8 @@
 #include <asm/uaccess.h>
 #include <asm/system.h>
 
+#include <rsbac/hooks.h>
+
 #undef TTY_DEBUG_WAIT_UNTIL_SENT
 
 #undef	DEBUG
@@ -951,13 +953,56 @@ int tty_mode_ioctl(struct tty_struct *tty, struct file *file,
 	int ret = 0;
 	struct ktermios kterm;
 
-	BUG_ON(file == NULL);
+#ifdef CONFIG_RSBAC
+	enum  rsbac_adf_request_t rsbac_request;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
 
+	BUG_ON(file == NULL);
 	if (tty->driver->type == TTY_DRIVER_TYPE_PTY &&
 	    tty->driver->subtype == PTY_TYPE_MASTER)
 		real_tty = tty->link;
 	else
 		real_tty = tty;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	switch (cmd) {
+#ifdef TIOCGETP
+		case TIOCGETP:
+#endif
+#ifdef TIOCGETC
+		case TIOCGETC:
+#endif
+#ifdef TIOCGLTC
+		case TIOCGLTC:
+#endif
+		case TCGETS:
+		case TCGETA:
+		case TIOCOUTQ:
+		case TIOCINQ:
+		case TIOCGLCKTRMIOS:
+		case TIOCGSOFTCAR:
+			rsbac_request = R_GET_PERMISSIONS_DATA;
+			break;
+		default:
+			rsbac_request = R_MODIFY_PERMISSIONS_DATA;
+	}
+	rsbac_target_id.dev.type = D_char;
+	rsbac_target_id.dev.major = tty->driver->major;
+	rsbac_target_id.dev.minor = tty->driver->minor_start + tty->index;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(rsbac_request,
+				task_pid(current),
+				T_DEV,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	switch (cmd) {
 #ifdef TIOCGETP

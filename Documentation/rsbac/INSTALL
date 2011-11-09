@@ -1,0 +1,18 @@
+RSBAC INSTALL
+=============
+
+Installation from a RSBAC tarball
+---------------------------------
+
+You probably already untar'ed the rsbac-x.y.z.tar.gz archive. You can safely
+untar this archive into your kernel main directory, or copy all files there
+- no file should be overwritten.
+
+To get RSBAC working, you must then patch the kernel using an RSBAC kernel
+patch patch-x.y.z-va.b.c.bz2, matching your kernel version. In kernel main dir
+call
+bzip2 -dc patch-x.y.z-va.b.c.bz2 | patch -p1 &>perr
+After patching, everything should be in place and a log should be in perr.
+
+If your kernel version is not supported, check at
+<http://www.rsbac.org/download> for newer patch files.

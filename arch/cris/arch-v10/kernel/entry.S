@@ -825,7 +825,11 @@ sys_call_table:
 	.long sys_getdents64	/* 220 */
 	.long sys_fcntl64
 	.long sys_ni_syscall	/* reserved for TUX */
-	.long sys_ni_syscall
+#ifdef CONFIG_RSBAC
+	.long sys_rsbac 	/*	reserved for sys_security */
+#else
+	.long sys_ni_syscall 	/*	reserved for sys_security */
+#endif
 	.long sys_gettid
 	.long sys_readahead	/* 225 */
 	.long sys_setxattr

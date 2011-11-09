@@ -10,6 +10,7 @@
 #include <linux/syscalls.h>
 #include <asm/uaccess.h>
 #include <asm/unistd.h>
+#include <rsbac/hooks.h>
 
 #ifdef __ARCH_WANT_SYS_UTIME
 
@@ -54,6 +55,12 @@ static int utimes_common(struct path *path, struct timespec *times)
 	struct iattr newattrs;
 	struct inode *inode = path->dentry->d_inode;
 
+#ifdef CONFIG_RSBAC
+	enum  rsbac_target_t rsbac_target;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	error = mnt_want_write(path->mnt);
 	if (error)
 		goto out;
@@ -95,12 +102,43 @@ static int utimes_common(struct path *path, struct timespec *times)
                 if (IS_IMMUTABLE(inode))
 			goto mnt_drop_write_and_out;
 
+#ifdef CONFIG_RSBAC_ALLOW_DAC_DISABLE_PART
+		if (!rsbac_dac_part_disabled(path->dentry))
+#endif
 		if (!inode_owner_or_capable(inode)) {
 			error = inode_permission(inode, MAY_WRITE);
 			if (error)
 				goto mnt_drop_write_and_out;
 		}
 	}
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target = T_FILE;
+	if (S_ISDIR(inode->i_mode))
+		rsbac_target = T_DIR;
+	else if (S_ISFIFO(inode->i_mode))
+		rsbac_target = T_FIFO;
+	else if (S_ISLNK(inode->i_mode))
+		rsbac_target = T_SYMLINK;
+	else if (S_ISSOCK(inode->i_mode))
+		rsbac_target = T_UNIXSOCK;
+	rsbac_target_id.file.device = inode->i_sb->s_dev;
+	rsbac_target_id.file.inode  = inode->i_ino;
+	rsbac_target_id.file.dentry_p = path->dentry;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_MODIFY_ACCESS_DATA,
+				task_pid(current),
+				rsbac_target,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		error = -EPERM;
+		goto mnt_drop_write_and_out;
+	}
+#endif
+
 	mutex_lock(&inode->i_mutex);
 	error = notify_change(path->dentry, &newattrs);
 	mutex_unlock(&inode->i_mutex);

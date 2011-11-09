@@ -41,6 +41,7 @@
 #include <asm/current.h>
 #include <asm/uaccess.h>
 #include "util.h"
+#include <rsbac/hooks.h>
 
 /*
  * one msg_receiver structure for each sleeping receiver:
@@ -184,12 +185,35 @@ static int newque(struct ipc_namespace *ns, struct ipc_params *params)
 	key_t key = params->key;
 	int msgflg = params->flg;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	msq = ipc_rcu_alloc(sizeof(*msq));
 	if (!msq)
 		return -ENOMEM;
 
 	msq->q_perm.mode = msgflg & S_IRWXUGO;
 	msq->q_perm.key = key;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "[sys_msgget()]: calling ADF\n");
+	rsbac_target_id.ipc.type = I_msg;
+	rsbac_target_id.ipc.id.id_nr = 0;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_CREATE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		ipc_rcu_putref(msq);
+		return -EPERM;
+	}
+#endif
 
 	msq->q_perm.security = NULL;
 	retval = security_msg_queue_alloc(msq);
@@ -216,6 +240,25 @@ static int newque(struct ipc_namespace *ns, struct ipc_params *params)
 	INIT_LIST_HEAD(&msq->q_messages);
 	INIT_LIST_HEAD(&msq->q_receivers);
 	INIT_LIST_HEAD(&msq->q_senders);
+
+#ifdef CONFIG_RSBAC
+	rsbac_target_id.ipc.type = I_msg;
+	rsbac_target_id.ipc.id.id_nr = msq->q_perm.id;
+	rsbac_new_target_id.dummy = 0;
+	if (rsbac_adf_set_attr(R_CREATE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING
+				"newque() [sys_msgget()]: rsbac_adf_set_attr() returned error");
+	}
+#endif
+
 
 	msg_unlock(msq);
 
@@ -415,6 +458,11 @@ static int msgctl_down(struct ipc_namespace *ns, int msqid, int cmd,
 	struct msqid64_ds uninitialized_var(msqid64);
 	struct msg_queue *msq;
 	int err;
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
 
 	if (cmd == IPC_SET) {
 		if (copy_msqid_from_user(&msqid64, buf, version))
@@ -434,7 +482,38 @@ static int msgctl_down(struct ipc_namespace *ns, int msqid, int cmd,
 
 	switch (cmd) {
 	case IPC_RMID:
+#ifdef CONFIG_RSBAC
+		rsbac_target_id.ipc.type = I_msg;
+		rsbac_target_id.ipc.id.id_nr = msqid;
+		rsbac_pr_debug(aef, "calling ADF\n");
+		rsbac_attribute_value.dummy = 0;
+		if (!rsbac_adf_request(R_DELETE,
+					task_pid(current),
+					T_IPC,
+					rsbac_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			err = -EPERM;
+			goto out_unlock;
+		}
+#endif
 		freeque(ns, ipcp);
+#ifdef CONFIG_RSBAC
+		rsbac_new_target_id.dummy = 0;
+		if (rsbac_adf_set_attr(R_DELETE,
+					task_pid(current),
+					T_IPC,
+					rsbac_target_id,
+					T_NONE,
+					rsbac_new_target_id,
+					A_none,
+					rsbac_attribute_value))
+		{
+			rsbac_printk(KERN_WARNING
+					"sys_msgctl(): rsbac_adf_set_attr() returned error");
+		}
+#endif
 		goto out_up;
 	case IPC_SET:
 		if (msqid64.msg_qbytes > ns->msg_ctlmnb &&
@@ -442,6 +521,52 @@ static int msgctl_down(struct ipc_namespace *ns, int msqid, int cmd,
 			err = -EPERM;
 			goto out_unlock;
 		}
+
+#ifdef CONFIG_RSBAC
+		rsbac_target_id.ipc.type = I_msg;
+		rsbac_target_id.ipc.id.id_nr = msqid;
+		if (ipcp->uid != msqid64.msg_perm.uid) {
+			rsbac_pr_debug(aef, "calling ADF\n");
+			rsbac_attribute_value.owner = msqid64.msg_perm.uid;
+			if (!rsbac_adf_request(R_CHANGE_OWNER,
+						task_pid(current),
+						T_IPC,
+						rsbac_target_id,
+						A_owner,
+						rsbac_attribute_value))
+			{
+				err = -EPERM;
+				goto out_unlock;
+			}
+		}
+		if (ipcp->gid != msqid64.msg_perm.gid) {
+			rsbac_pr_debug(aef, "calling ADF\n");
+			rsbac_attribute_value.group = msqid64.msg_perm.gid;
+			if (!rsbac_adf_request(R_CHANGE_GROUP,
+						task_pid(current),
+						T_IPC,
+						rsbac_target_id,
+						A_group,
+						rsbac_attribute_value))
+			{
+				err = -EPERM;
+				goto out_unlock;
+			}
+		}
+		if (ipcp->mode != ((ipcp->mode & ~S_IRWXUGO) | (S_IRWXUGO & msqid64.msg_perm.mode))) {
+			rsbac_pr_debug(aef, "calling ADF\n");
+			rsbac_attribute_value.mode = (S_IRWXUGO & msqid64.msg_perm.mode);
+			if (!rsbac_adf_request(R_ALTER,
+						task_pid(current),
+						T_IPC,
+						rsbac_target_id,
+						A_mode,
+						rsbac_attribute_value)) {
+				err = -EPERM;
+				goto out_unlock;
+			}
+		}
+#endif
 
 		msq->q_qbytes = msqid64.msg_qbytes;
 
@@ -640,12 +765,34 @@ long do_msgsnd(int msqid, long mtype, void __user *mtext,
 	int err;
 	struct ipc_namespace *ns;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	ns = current->nsproxy->ipc_ns;
 
 	if (msgsz > ns->msg_ctlmax || (long) msgsz < 0 || msqid < 0)
 		return -EINVAL;
 	if (mtype < 1)
 		return -EINVAL;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.ipc.type   = I_msg;
+	rsbac_target_id.ipc.id.id_nr  = msqid;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_SEND,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	msg = load_msg(mtext, msgsz);
 	if (IS_ERR(msg))
@@ -712,6 +859,22 @@ long do_msgsnd(int msqid, long mtype, void __user *mtext,
 		atomic_inc(&ns->msg_hdrs);
 	}
 
+#ifdef CONFIG_RSBAC
+	rsbac_new_target_id.dummy = 0;
+	if (rsbac_adf_set_attr(R_SEND,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				T_NONE,
+				rsbac_new_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		rsbac_printk(KERN_WARNING
+				"sys_msgsnd(): rsbac_adf_set_attr() returned error");
+	}
+#endif
+
 	err = 0;
 	msg = NULL;
 
@@ -760,10 +923,32 @@ long do_msgrcv(int msqid, long *pmtype, void __user *mtext,
 	int mode;
 	struct ipc_namespace *ns;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_target_id_t rsbac_new_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (msqid < 0 || (long) msgsz < 0)
 		return -EINVAL;
 	mode = convert_mode(&msgtyp, msgflg);
 	ns = current->nsproxy->ipc_ns;
+
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.ipc.type   = I_msg;
+	rsbac_target_id.ipc.id.id_nr  = msqid;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_RECEIVE,
+				task_pid(current),
+				T_IPC,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	msq = msg_lock_check(ns, msqid);
 	if (IS_ERR(msq))
@@ -808,6 +993,23 @@ long do_msgrcv(int msqid, long *pmtype, void __user *mtext,
 				msg = ERR_PTR(-E2BIG);
 				goto out_unlock;
 			}
+	                /* RSBAC: notify ADF of opened ipc */
+#ifdef CONFIG_RSBAC
+			rsbac_new_target_id.dummy = 0;
+			if (rsbac_adf_set_attr(R_RECEIVE,
+						task_pid(current),
+						T_IPC,
+						rsbac_target_id,
+						T_NONE,
+						rsbac_new_target_id,
+						A_none,
+						rsbac_attribute_value))
+			{
+				rsbac_printk(KERN_WARNING
+						"sys_msgrcv(): rsbac_adf_set_attr() returned error");
+			}
+#endif
+
 			list_del(&msg->m_list);
 			msq->q_qnum--;
 			msq->q_rtime = get_seconds();

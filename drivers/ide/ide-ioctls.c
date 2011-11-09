@@ -5,6 +5,7 @@
 #include <linux/hdreg.h>
 #include <linux/ide.h>
 #include <linux/slab.h>
+#include <rsbac/hooks.h>
 
 static const struct ide_ioctl_devset ide_ioctl_settings[] = {
 { HDIO_GET_32BIT,	 HDIO_SET_32BIT,	&ide_devset_io_32bit  },
@@ -234,6 +235,58 @@ int generic_ide_ioctl(ide_drive_t *drive, struct block_device *bdev,
 		      unsigned int cmd, unsigned long arg)
 {
 	int err;
+
+#ifdef CONFIG_RSBAC
+	enum  rsbac_adf_request_t rsbac_request;
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+
+	rsbac_pr_debug(aef, "calling ADF\n");
+	/* values taken from include/linux/fs.h and hdreg.h */
+	switch (cmd) {
+		case BLKGETSIZE:   /* Return device size */
+		case BLKGETSIZE64:
+		case BLKROGET:
+		case BLKRAGET:
+		case BLKFRAGET:
+		case BLKSECTGET:
+		case BLKSSZGET:
+		case BLKBSZGET:
+		case HDIO_GETGEO:
+		case HDIO_OBSOLETE_IDENTITY:
+		case HDIO_GET_UNMASKINTR:
+		case HDIO_GET_IDENTITY:
+		case HDIO_GET_NICE:
+		case HDIO_GET_BUSSTATE:
+		case HDIO_GET_QDMA:
+		case HDIO_GET_MULTCOUNT:
+		case HDIO_GET_KEEPSETTINGS:
+		case HDIO_GET_32BIT:
+		case HDIO_GET_NOWERR:
+		case HDIO_GET_DMA:
+		case HDIO_GET_WCACHE:
+		case HDIO_GET_ACOUSTIC:
+		case HDIO_GET_ADDRESS:
+			rsbac_request = R_GET_STATUS_DATA;
+			break;
+
+		default:
+			rsbac_request = R_MODIFY_SYSTEM_DATA;
+	}
+	rsbac_target_id.dev.type = D_block;
+	rsbac_target_id.dev.major = RSBAC_MAJOR(bdev->bd_dev);
+	rsbac_target_id.dev.minor = RSBAC_MINOR(bdev->bd_dev);
+	rsbac_attribute_value.ioctl_cmd = cmd;
+	if (!rsbac_adf_request(rsbac_request,
+				task_pid(current),
+				T_DEV,
+				rsbac_target_id,
+				A_ioctl_cmd,
+				rsbac_attribute_value))
+	{
+		return -EPERM;
+	}
+#endif
 
 	err = ide_setting_ioctl(drive, bdev, cmd, arg, ide_ioctl_settings);
 	if (err != -EOPNOTSUPP)

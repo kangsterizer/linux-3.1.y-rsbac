@@ -238,6 +238,10 @@
 #define __NR_futex		221
 #define __NR_sched_setaffinity	222
 #define __NR_sched_getaffinity	223
+/* RSBAC - we use 224, the old sys_security */
+#ifdef CONFIG_RSBAC
+#define __NR_rsbac              224
+#endif
 /* 224 currently unused */
 #define __NR_tuxcall		225
 #ifndef __powerpc64__

@@ -1,0 +1,93 @@
+RSBAC README for the proc interface.
+------------------------------------
+
+Also see: <http://rsbac.org/documentation/proc_interface>
+
+If enabled in the kernel configuration, RSBAC adds one directory to the
+main proc dir: rsbac-info. Since proc is treated as a normal read-only fs,
+rsbac could not be used.
+
+All successful write accesses are logged via syslog at KERN_INFO level.
+The rsbac-info dir contains the following entries:
+
+ - stats: shows rsbac status, same contents as sys_rsbac_stats writes into
+   syslog
+
+ - active: short summary of version, mode and module states, good for scripts
+
+ - stats_pm (if PM is enabled): shows PM status, same contents as
+   sys_rsbac_stats_pm writes into syslog
+
+ - stats_rc (if RC is enabled): shows RC status
+
+ - stats_auth (if AUTH is enabled): shows AUTH status
+
+ - stats_acl (if ACL is enabled): shows ACL status
+
+ - xstats (if extended status is enabled): shows extended status, e.g. table
+   of call counts for requests and targets
+
+ - devices: shows all rsbac-mounted devices in n:m notation and their
+   no_write status (no_write is set on fd-list read, if wrong version).
+   No_write status can be changed by calling
+          echo "devices no_write n:m k" >devices
+   with n:m is the device in major:minor notation, k is 0 or 1.
+
+ - acl_devices, auth_devices: same for ACL and AUTH data structures
+
+ - debug: shows all RSBAC debug settings, softmode, dac_disable and nosyslog.
+   Levels can be changed by calling
+          echo "debug name n" >debug
+   Valid names are ds, aef, no_write, ds_pm, aef_pm, adf_pm, adf_ms, ds_rc,
+   aef_rc, adf_rc, ds_acl, aef_acl, adf_acl, auto, softmode, dac_disable and 
+   nosyslog, but only, if shown when reading this file. Valid levels are 0
+   and 1.
+   Debug levels can be preset to 1 by kernel parameters with same name as
+   variable name shown, e.g. rsbac_debug_ds or rsbac_softmode.
+   Individual model softmode can be switched by calling
+          echo "debug ind_softmode <modname> n" >debug
+   Remote logging address and port can be changed with
+          echo "debug log_remote_addr a.b.c.d" >debug
+          echo "debug log_remote_port n" >debug
+   DAZ cache ttl is set via
+          echo "debug daz_ttl n" >debug
+
+ - log_levels: shows adf log levels for all requests. Log levels can be
+   changed by calling
+   echo "log_levels request n" >log_levels
+   with request = request name, e.g. WRITE, n = level.
+
+ - auto_write (if auto-write is enabled): shows auto write status, currently
+   auto interval in jiffies and auto debug level only.
+   Auto interval can be changed by calling
+          echo "auto interval n" >auto_write
+   with n = number of jiffies, debug level (0 or 1) by calling
+          echo "auto debug n" >auto_write
+
+ - versions: shows aci versions for dev and user list and adf request array
+   version for log_level array and the no_write status of each (set on boot,
+   if wrong version is tried to be read). No_write status can be changed by
+   calling
+          echo "no_write listname n" >versions
+   with listname is one of dev, user, log_levels, n is 0 or 1.
+
+ - rmsg (if own logging is enabled): similar to kmsg in main proc dir, logging
+   of RSBAC requests. This file can be used by programs like klogd.
+
+ - auth_caplist (if AUTH is enabled): shows all AUTH capabilities currently
+   set.
+
+ - reg_modules (if REG is enabled): shows currently registered additional
+   decision modules and syscalls.
+
+ - acl_acllist (if ACL is enabled): Detailed listing of all ACL entries and
+   masks in the system.
+
+ - backup subdir: It contains backups of what would be
+   current aci data files. You can use cp for backups of system independent aci
+   data structures, e.g. rc_roles, rc_types, and the admin backup tools for
+   system dependent ones, e.g. file/dir attributes or AUTH file capabilities.
+   Using the backup_all script or single lines from it is however strongly
+   recommended.
+
+Last updated: 18/Jan/2005

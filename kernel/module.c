@@ -59,6 +59,8 @@
 #include <linux/pfn.h>
 #include <linux/bsearch.h>
 
+#include <rsbac/hooks.h>
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
 
@@ -778,6 +780,11 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 	char name[MODULE_NAME_LEN];
 	int ret, forced = 0;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	if (!capable(CAP_SYS_MODULE) || modules_disabled)
 		return -EPERM;
 
@@ -787,6 +794,19 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 
 	if (mutex_lock_interruptible(&module_mutex) != 0)
 		return -EINTR;
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.dummy = 0;
+	rsbac_attribute_value.mod_name = name;
+	if (!rsbac_adf_request(R_REMOVE_FROM_KERNEL,
+				task_pid(current),
+				T_NONE,
+				rsbac_target_id,
+				A_mod_name,
+				rsbac_attribute_value))
+		ret = -EPERM;
+		goto out;
+#endif
 
 	mod = find_module(name);
 	if (!mod) {
@@ -2952,10 +2972,28 @@ SYSCALL_DEFINE3(init_module, void __user *, umod,
 	struct module *mod;
 	int ret = 0;
 
+#ifdef CONFIG_RSBAC
+	union rsbac_target_id_t rsbac_target_id;
+	union rsbac_attribute_value_t rsbac_attribute_value;
+#endif
+
 	/* Must have permission */
 	if (!capable(CAP_SYS_MODULE) || modules_disabled)
 		return -EPERM;
 
+#ifdef CONFIG_RSBAC
+	rsbac_pr_debug(aef, "calling ADF\n");
+	rsbac_target_id.dummy = 0;
+	rsbac_attribute_value.dummy = 0;
+	if (!rsbac_adf_request(R_ADD_TO_KERNEL,
+				task_pid(current),
+				T_NONE,
+				rsbac_target_id,
+				A_none,
+				rsbac_attribute_value)) {
+		return -EPERM;
+	}
+#endif
 	/* Do all the hard work */
 	mod = load_module(umod, len, uargs);
 	if (IS_ERR(mod))

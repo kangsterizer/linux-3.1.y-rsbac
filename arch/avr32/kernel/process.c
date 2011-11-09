@@ -101,8 +101,13 @@ int kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 	regs.pc = (unsigned long)kernel_thread_helper;
 	regs.sr = MODE_SUPERVISOR;
 
-	return do_fork(flags | CLONE_VM | CLONE_UNTRACED,
+#ifdef CONFIG_RSBAC
+	return do_fork(flags | CLONE_VM | CLONE_UNTRACED | CLONE_KTHREAD,
 		       0, &regs, 0, NULL, NULL);
+#else
+	return do_fork(flags | CLONE_VM | CLONE_UNTRACED,
+                       0, &regs, 0, NULL, NULL);
+#endif
 }
 EXPORT_SYMBOL(kernel_thread);
 

@@ -313,6 +313,9 @@ int main(void)
 #endif
 	DEFINE(CLONE_VM, CLONE_VM);
 	DEFINE(CLONE_UNTRACED, CLONE_UNTRACED);
+#ifdef CONFIG_RSBAC
+	DEFINE(CLONE_KTHREAD, CLONE_KTHREAD);
+#endif
 
 #ifndef CONFIG_PPC64
 	DEFINE(MM_PGD, offsetof(struct mm_struct, pgd));
