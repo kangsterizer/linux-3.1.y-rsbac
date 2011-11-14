@@ -4163,7 +4163,6 @@ int vfs_readlink(struct dentry *dentry, char __user *buffer, int buflen, const c
 #endif
 	if (copy_to_user(buffer, link, len))
 		len = -EFAULT;
-
 out:
 	return len;
 }
