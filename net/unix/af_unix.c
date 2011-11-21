@@ -1506,6 +1506,7 @@ restart:
 			rsbac_printk(KERN_WARNING
 					"unix_stream_connect() [sys_connect() [sys_socketcall()]]: rsbac_adf_set_attr() returned error\n");
 #ifdef CONFIG_RSBAC_NET
+#ifdef CONFIG_RSBAC_DEBUG
 		if (   rsbac_debug_aef_net
 		    && sk->sk_socket
 		    && newsk->sk_socket
@@ -1517,6 +1518,7 @@ restart:
 			rsbac_target,
 			other->sk_socket->file->f_dentry->d_inode->i_ino);
 		}
+#endif
 #endif
 	}
 #endif

@@ -4676,7 +4676,9 @@ int rsbac_acl_remove_acl_entry(rsbac_list_ta_number_t ta_number,
 	int err = 0;
 	struct rsbac_acl_device_list_item_t *device_p;
 	struct rsbac_acl_entry_desc_t desc;
+#ifdef CONFIG_RSBAC_DEBUG
 	char tmp[RSBAC_MAXNAMELEN];
+#endif
 	rsbac_acl_rights_vector_t mask;
 	int srcu_idx;
 
@@ -5052,7 +5054,9 @@ int rsbac_acl_remove_acl(rsbac_list_ta_number_t ta_number,
 			 union rsbac_target_id_t tid)
 {
 	int err = 0;
+#ifdef CONFIG_RSBAC_DEBUG
 	char tmp[RSBAC_MAXNAMELEN];
+#endif
 	struct rsbac_acl_device_list_item_t *device_p;
 	int srcu_idx;
 
@@ -6040,7 +6044,9 @@ int rsbac_acl_set_mask(rsbac_list_ta_number_t ta_number,
 		       rsbac_acl_rights_vector_t mask)
 {
 	int err = 0;
+#ifdef CONFIG_RSBAC_DEBUG
 	char tmp[80];
+#endif
 	struct rsbac_acl_device_list_item_t *device_p;
 	int srcu_idx;
 

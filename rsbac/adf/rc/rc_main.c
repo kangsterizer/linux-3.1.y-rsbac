@@ -6,7 +6,7 @@
 /*                                                   */
 /* Author and (c) 1999-2011: Amon Ott <ao@rsbac.org> */
 /*                                                   */
-/* Last modified: 12/Jul/2011                        */
+/* Last modified: 21/Nov/2011                        */
 /*************************************************** */
 
 #include <linux/string.h>
@@ -278,7 +278,9 @@ check_comp_rc_scd(enum rsbac_rc_scd_type_t scd_type,
 				i_rc_subtid, RI_type_comp_scd, request)) {
 		return GRANTED;
 	} else {
+#if defined(CONFIG_RSBAC_RC_LEARN) || defined(CONFIG_RSBAC_DEBUG)
 		char tmp[RSBAC_MAXNAMELEN];
+#endif
 
 #if defined(CONFIG_RSBAC_RC_LEARN)
 		if (rsbac_rc_learn) {
@@ -634,10 +636,12 @@ rsbac_rc_check_type_comp(enum rsbac_target_t target,
 				i_rc_subtid, i_rc_item, request))
 		return GRANTED;
 	else {
+#ifdef CONFIG_RSBAC_DEBUG
 		char tmp[RSBAC_MAXNAMELEN];
 		rsbac_pr_debug(adf_rc, "rc_role is %i, rc_type is %i, request is %s -> NOT_GRANTED!\n",
 			       i_attr_val1.rc_role, type,
 			       get_rc_special_right_name(tmp, request));
+#endif
 		return NOT_GRANTED;
 	}
 }
