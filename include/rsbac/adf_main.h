@@ -1,10 +1,10 @@
 /************************************ */
 /* Rule Set Based Access Control      */
-/* Author and (c) 1999-2009:          */
+/* Author and (c) 1999-2010:          */
 /*   Amon Ott <ao@rsbac.org>          */
 /* Data Structs etc. for Access       */
 /* Control Decision Facility          */
-/* Last modified: 26/Mar/2009         */
+/* Last modified: 21/May/2010         */
 /************************************ */
 
 #ifndef __RSBAC_ADF_MAIN_H
@@ -388,6 +388,7 @@ extern __u64 rsbac_adf_set_attr_xcount[T_NONE+1][R_NONE];
   ((rsbac_request_vector_t) 1 << R_CLONE) | \
   ((rsbac_request_vector_t) 1 << R_CREATE) | \
   ((rsbac_request_vector_t) 1 << R_EXECUTE) | \
+  ((rsbac_request_vector_t) 1 << R_CONNECT) | \
   ((rsbac_request_vector_t) 1 << R_BIND) )
 #endif
 
