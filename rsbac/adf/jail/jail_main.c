@@ -4,9 +4,9 @@
 /* Facility (ADF) - Authorization module              */
 /* File: rsbac/adf/jail/jail_main.c                   */
 /*                                                    */
-/* Author and (c) 1999-2010: Amon Ott <ao@rsbac.org>  */
+/* Author and (c) 1999-2011: Amon Ott <ao@rsbac.org>  */
 /*                                                    */
-/* Last modified: 14/Sep/2010                         */
+/* Last modified: 17/Oct/2011                         */
 /**************************************************** */
 
 #include <linux/string.h>
@@ -211,7 +211,7 @@ jail_check_ip(rsbac_pid_t pid, union rsbac_target_id_t tid)
 					|| (
 						(jail_flags &
 						JAIL_allow_inet_localhost)
-						&& (addr->sin_addr.s_addr == 
+						&& (addr->sin_addr.s_addr ==
 						RSBAC_JAIL_LOCALHOST)
 					)
 #if defined(CONFIG_RSBAC_JAIL_NET_ADJUST)
@@ -248,7 +248,7 @@ jail_check_ip(rsbac_pid_t pid, union rsbac_target_id_t tid)
 				    || (
 					    (jail_flags &
 					     JAIL_allow_inet_localhost)
-					    && 
+					    &&
 					    ((inet_sk(tid.netobj.sock_p->sk)->
 					      inet_saddr == RSBAC_JAIL_LOCALHOST)
 				    || (
@@ -1193,83 +1193,200 @@ int rsbac_adf_set_attr_jail(enum rsbac_adf_request_t request,
 		}
 
 	case R_CREATE:
-		if (target == T_IPC) {
-			/* Get jail_id from process */
-			i_tid.process = caller_pid;
-			if (rsbac_get_attr(SW_JAIL,
-					   T_PROCESS,
-					   i_tid,
-					   A_jail_id,
-					   &i_attr_val1, FALSE)) {
-				rsbac_ds_get_error
-				    ("rsbac_adf_set_attr_jail()",
-				     A_jail_id);
-				return (-RSBAC_EREADFAILED);
-			}
-			/* Set jail_id for new IPC */
-			if (rsbac_set_attr(SW_JAIL,
-					   T_IPC,
-					   tid, A_jail_id, i_attr_val1)) {
-				rsbac_ds_set_error
-				    ("rsbac_adf_set_attr_jail()",
-				     A_jail_id);
-				return (-RSBAC_EWRITEFAILED);
-			}
-			return 0;
-		}
-		/* fall through */
+		switch (target) {
+			case T_IPC:
+				/* Get jail_id from process */
+				i_tid.process = caller_pid;
+				if (rsbac_get_attr(SW_JAIL,
+						   T_PROCESS,
+						   i_tid,
+						   A_jail_id,
+						   &i_attr_val1, FALSE)) {
+					rsbac_ds_get_error
+					    ("rsbac_adf_set_attr_jail()",
+					     A_jail_id);
+					return -RSBAC_EREADFAILED;
+				}
+				if (i_attr_val1.jail_id) {
+					/* Set jail_id for new IPC */
+					if (rsbac_set_attr(SW_JAIL,
+							   T_IPC,
+							   tid, A_jail_id, i_attr_val1)) {
+						rsbac_ds_set_error
+						    ("rsbac_adf_set_attr_jail()",
+						     A_jail_id);
+						return -RSBAC_EWRITEFAILED;
+					}
+				}
+				return 0;
 
 #ifdef CONFIG_RSBAC_JAIL_NET_ADJUST
-	case R_BIND:
-		if (target != T_NETOBJ)
-			return 0;
-		if (!tid.netobj.sock_p) {
-			rsbac_printk(KERN_WARNING
-				     "rsbac_adf_set_attr_jail(): NULL sock_p!\n");
-			return 0;
-		}
-		if (!tid.netobj.sock_p->ops) {
-			return 0;
-		}
-		switch (tid.netobj.sock_p->ops->family) {
-		case AF_INET:
-			i_tid.process = caller_pid;
-			if ((err = rsbac_get_attr(SW_JAIL,
-						  T_PROCESS,
-						  i_tid,
-						  A_jail_ip,
-						  &i_attr_val1, TRUE))) {
-				rsbac_ds_get_error
-				    ("rsbac_adf_set_attr_jail()",
-				     A_jail_ip);
-				return -RSBAC_EREADFAILED;
-			}
-			if (i_attr_val1.jail_ip == INADDR_ANY)
-				return 0;
-			if ((err = rsbac_get_attr(SW_JAIL,
-						  T_PROCESS,
-						  i_tid,
-						  A_jail_flags,
-						  &i_attr_val2, TRUE))) {
-				rsbac_ds_get_error
-				    ("rsbac_adf_set_attr_jail()",
-				     A_jail_flags);
-				return -RSBAC_EREADFAILED;
-			}
-			if (i_attr_val2.
-			    jail_flags & JAIL_auto_adjust_inet_any) {
-				inet_sk(tid.netobj.sock_p->sk)->inet_rcv_saddr =
-				    i_attr_val1.jail_ip;
-				inet_sk(tid.netobj.sock_p->sk)->inet_saddr =
-				    i_attr_val1.jail_ip;
-			}
-			return 0;
+			case T_NETOBJ:
+				if (!tid.netobj.sock_p) {
+					rsbac_printk(KERN_WARNING
+						     "rsbac_adf_set_attr_jail(): NULL sock_p!\n");
+					return 0;
+				}
+				if (!tid.netobj.sock_p->ops) {
+					return 0;
+				}
+				switch (tid.netobj.sock_p->ops->family) {
+				case AF_INET:
+					i_tid.process = caller_pid;
+					if ((err = rsbac_get_attr(SW_JAIL,
+								  T_PROCESS,
+								  i_tid,
+								  A_jail_ip,
+								  &i_attr_val1, TRUE))) {
+						rsbac_ds_get_error
+						    ("rsbac_adf_set_attr_jail()",
+						     A_jail_ip);
+						return -RSBAC_EREADFAILED;
+					}
+					if (i_attr_val1.jail_ip == INADDR_ANY)
+						return 0;
+					if ((err = rsbac_get_attr(SW_JAIL,
+								  T_PROCESS,
+								  i_tid,
+								  A_jail_flags,
+								  &i_attr_val2, TRUE))) {
+						rsbac_ds_get_error
+						    ("rsbac_adf_set_attr_jail()",
+						     A_jail_flags);
+						return -RSBAC_EREADFAILED;
+					}
+					if (i_attr_val2.
+					    jail_flags & JAIL_auto_adjust_inet_any) {
+						inet_sk(tid.netobj.sock_p->sk)->inet_rcv_saddr =
+						    i_attr_val1.jail_ip;
+						inet_sk(tid.netobj.sock_p->sk)->inet_saddr =
+						    i_attr_val1.jail_ip;
+					}
+					return 0;
 
-		default:
-			break;
-		}
+				default:
+					break;
+				}
 #endif
-		return 0;
+
+			default:
+				return 0;
+		}
+
+	case R_BIND:
+		switch (target) {
+			case T_IPC:
+				/* Get jail_id from process */
+				i_tid.process = caller_pid;
+				if (rsbac_get_attr(SW_JAIL,
+						   T_PROCESS,
+						   i_tid,
+						   A_jail_id,
+						   &i_attr_val1, FALSE)) {
+					rsbac_ds_get_error
+					    ("rsbac_adf_set_attr_jail()",
+					     A_jail_id);
+					return -RSBAC_EREADFAILED;
+				}
+				if (i_attr_val1.jail_id) {
+					/* Set jail_id for new IPC */
+					if (rsbac_set_attr(SW_JAIL,
+							   T_IPC,
+							   tid, A_jail_id, i_attr_val1)) {
+						rsbac_ds_set_error
+						    ("rsbac_adf_set_attr_jail()",
+						     A_jail_id);
+						return -RSBAC_EWRITEFAILED;
+					}
+				}
+				return 0;
+
+#ifdef CONFIG_RSBAC_JAIL_NET_ADJUST
+			case T_NETOBJ:
+				if (!tid.netobj.sock_p) {
+					rsbac_printk(KERN_WARNING
+						     "rsbac_adf_set_attr_jail(): NULL sock_p!\n");
+					return 0;
+				}
+				if (!tid.netobj.sock_p->ops) {
+					return 0;
+				}
+				switch (tid.netobj.sock_p->ops->family) {
+				case AF_INET:
+					i_tid.process = caller_pid;
+					if ((err = rsbac_get_attr(SW_JAIL,
+								  T_PROCESS,
+								  i_tid,
+								  A_jail_ip,
+								  &i_attr_val1, TRUE))) {
+						rsbac_ds_get_error
+						    ("rsbac_adf_set_attr_jail()",
+						     A_jail_ip);
+						return -RSBAC_EREADFAILED;
+					}
+					if (i_attr_val1.jail_ip == INADDR_ANY)
+						return 0;
+					if ((err = rsbac_get_attr(SW_JAIL,
+								  T_PROCESS,
+								  i_tid,
+								  A_jail_flags,
+								  &i_attr_val2, TRUE))) {
+						rsbac_ds_get_error
+						    ("rsbac_adf_set_attr_jail()",
+						     A_jail_flags);
+						return -RSBAC_EREADFAILED;
+					}
+					if (i_attr_val2.
+					    jail_flags & JAIL_auto_adjust_inet_any) {
+						inet_sk(tid.netobj.sock_p->sk)->inet_rcv_saddr =
+						    i_attr_val1.jail_ip;
+						inet_sk(tid.netobj.sock_p->sk)->inet_saddr =
+						    i_attr_val1.jail_ip;
+					}
+					return 0;
+
+				default:
+					break;
+				}
+#endif
+			default:
+				return 0;
+		}
+
+	case R_CONNECT:
+		switch (target) {
+			case T_IPC:
+				if (new_target != T_IPC)
+					return 0;
+				/* Get jail_id from old IPC */
+				i_tid.process = caller_pid;
+				if (rsbac_get_attr(SW_JAIL,
+						   T_IPC,
+						   tid,
+						   A_jail_id,
+						   &i_attr_val1, FALSE)) {
+					rsbac_ds_get_error
+					    ("rsbac_adf_set_attr_jail()",
+					     A_jail_id);
+					return -RSBAC_EREADFAILED;
+				}
+				if (i_attr_val1.jail_id) {
+					/* Set jail_id for new IPC */
+					if (rsbac_set_attr(SW_JAIL,
+							   T_IPC,
+							   new_tid, A_jail_id, i_attr_val1)) {
+						rsbac_ds_set_error
+						    ("rsbac_adf_set_attr_jail()",
+						     A_jail_id);
+						return -RSBAC_EWRITEFAILED;
+					}
+				}
+				return 0;
+
+			default:
+				return 0;
+		}
+
 	default:
 		return 0;
 	}

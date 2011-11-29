@@ -2,7 +2,7 @@
    Written by John Ogness <jogness@antivir.de>
 
    Copyright (c) 2002, 2003, 2004 H+BEDV Datentechnik GmbH
-   Copyright (c) 2004-2010 Amon Ott <ao@rsbac.org>
+   Copyright (c) 2004-2011 Amon Ott <ao@rsbac.org>
    
    All rights reserved.
 
@@ -33,6 +33,9 @@
    ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
    POSSIBILITY OF SUCH DAMAGE.
 */
+
+#include <rsbac/types.h>
+#include <rsbac/debug.h>
 
 #include "dazuko_platform.h"
 
@@ -746,7 +749,7 @@ static int dazuko_register_daemon(struct daemon_id *did, const char *reg_name, i
 	struct slot_list	*sl;
 	int		i;
 
-	DPRINT(("dazuko: dazuko_register_daemon() [%d]\n", did->unique));
+	rsbac_pr_debug(adf_daz, "Registering daemon %s [%d]\n", reg_name, did->unique);
 
 	if (did == NULL || reg_name == NULL)
 		return XP_ERROR_PERMISSION;
@@ -888,9 +891,7 @@ static int dazuko_register_daemon(struct daemon_id *did, const char *reg_name, i
 	/* the daemon is registered, but not yet
 	 * ready to receive files */
 	__dazuko_change_slot_state(s, DAZUKO_FREE, DAZUKO_FREE);
-
-	DPRINT(("dazuko: slot[%d] assigned to daemon %d\n", s->id, s->did.unique));
-
+	rsbac_pr_debug(adf_daz, "slot[%d] assigned to daemon %s [%d]", s->id, reg_name, did->unique);
 	call_xp_up(&(s->mutex));
 /* UP */
 
@@ -2578,18 +2579,18 @@ inline int dazuko_sys_check(unsigned long event, int daemon_is_allowed, struct x
 			/* will need to scan if ON_CLOSE_MODIFIED is in the mask too */
 
 			if ((SCAN_ON_CLOSE || SCAN_ON_CLOSE_MODIFIED) == 0)
-				return -1;
+				return -2;
 			break;
 
 		default:
 			if ((access_mask & event) == 0)
-				return -1;
+				return -3;
 			break;
 	}
 
 	/* do we have any daemons? */
 	if (call_xp_atomic_read(&active) <= 0)
-		return -1;
+		return -4;
 
 	/* should daemons be allowed this event without a scan? */
 	if (daemon_is_allowed)
@@ -2599,7 +2600,7 @@ inline int dazuko_sys_check(unsigned long event, int daemon_is_allowed, struct x
 			/* this is one of our daemons, so we will report as
 			 * as if this event was not in the mask */
 
-			return -1;
+			return -5;
 		}
 	}
 

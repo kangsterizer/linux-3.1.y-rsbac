@@ -104,6 +104,8 @@ static int daz_reset_scanned(struct rsbac_fs_file_t file)
 	union rsbac_target_id_t       i_tid;
 
 	/* reset scanned status for file */
+	rsbac_pr_debug(adf_daz, "pid %u (%.15s), resetting scanned status!\n",
+				       current->pid, current->comm);
 	i_tid.file=file;
 	i_attr_val1.daz_scanned = DAZ_unscanned;
 	if(rsbac_set_attr(SW_DAZ,
@@ -345,6 +347,10 @@ inline int xp_fill_file_struct(struct dazuko_file_struct *dfs)
 	if (dfs->extra_data->full_filename == NULL)
 		return -1;
 	rsbac_get_full_path(dfs->extra_data->dentry, dfs->extra_data->full_filename, DAZ_MAX_FILENAME);
+
+	rsbac_pr_debug(adf_daz, "pid %u (%.15s), file is %s!\n",
+				       current->pid, current->comm,
+				       dfs->extra_data->full_filename);
 
 	/* find the actual value of the length */
 	dfs->extra_data->full_filename_length = strlen(dfs->extra_data->full_filename);
@@ -860,6 +866,8 @@ rsbac_adf_request_daz (enum  rsbac_adf_request_t     request,
 		return GRANTED;
 #endif
 
+	rsbac_pr_debug(adf_daz, "pid %u (%.15s), scanning required!\n",
+				       current->pid, current->comm);
 	xp_id.pid = current->pid;
 	xp_id.file = NULL;
 
@@ -908,6 +916,8 @@ rsbac_adf_request_daz (enum  rsbac_adf_request_t     request,
 					}
 				}
 #endif
+				rsbac_pr_debug(adf_daz, "pid %u (%.15s), dazuko_sys_pre() result is %i\n",
+				       current->pid, current->comm, error);
 			}
 			else
 			{
@@ -917,14 +927,21 @@ rsbac_adf_request_daz (enum  rsbac_adf_request_t     request,
 
 			dazuko_file_struct_cleanup(&dfs);
 		}
+		if(error == 2)
+			return DO_NOT_CARE;
+		if(error == 0) {
+			rsbac_pr_debug(adf_daz, "pid %u (%.15s), file clean!\n",
+				       current->pid, current->comm);
+			return GRANTED;
+		} else {
+			rsbac_pr_debug(adf_daz, "pid %u (%.15s), file infected!\n",
+				       current->pid, current->comm);
+			return NOT_GRANTED;
+		}
 	}
-
-	if(error == 2)
-		return DO_NOT_CARE;
-	if(error == 0)
-		return GRANTED;
-	else
-		return NOT_GRANTED;
+	rsbac_pr_debug(adf_daz, "pid %u (%.15s), dazuko_sys_check() result is %i\n",
+	       current->pid, current->comm, check_error);
+	return DO_NOT_CARE;
 } /* end of rsbac_adf_request_daz() */
 
 

@@ -5,7 +5,7 @@
 /* (some smaller parts copied from fs/namei.c        */
 /*  and others)                                      */
 /*                                                   */
-/* Last modified: 12/Jul/2011                        */
+/* Last modified: 17/Oct/2011                        */
 /*************************************************** */
 
 #include <linux/types.h>
@@ -60,6 +60,7 @@
 #include <linux/kdev_t.h>
 
 #define FUSE_SUPER_MAGIC 0x65735546
+#define CEPH_SUPER_MAGIC 0x00c36400
 
 #ifdef CONFIG_RSBAC_MAC
 #include <rsbac/mac.h>
@@ -340,7 +341,8 @@ rsbac_boolean_t rsbac_writable(struct super_block * sb_p)
 	    || (sb_p->s_magic == SMB_SUPER_MAGIC)
 	    || (sb_p->s_magic == ISOFS_SUPER_MAGIC)
 	    || (sb_p->s_magic == OCFS2_SUPER_MAGIC)
-	    || (sb_p->s_magic == FUSE_SUPER_MAGIC))
+	    || (sb_p->s_magic == FUSE_SUPER_MAGIC)
+	    || (sb_p->s_magic == CEPH_SUPER_MAGIC))
 		return FALSE;
 	else
 		return TRUE;
@@ -1629,7 +1631,7 @@ static int register_fd_lists(struct rsbac_device_list_item_t *device_p,
 		tmperr = rsbac_list_register_hashed(RSBAC_LIST_VERSION,
 					     &device_p->handles.rc,
 					     info_p,
-					     RSBAC_LIST_PERSIST | (RSBAC_MAJOR(kdev) ? RSBAC_LIST_OWN_SLAB : 0) |
+					     RSBAC_LIST_PERSIST | RSBAC_LIST_OWN_SLAB |
 					     RSBAC_LIST_DEF_DATA | RSBAC_LIST_AUTO_HASH_RESIZE,
 					     NULL,
 					     NULL, &def_rc_fd_aci,
@@ -2502,16 +2504,8 @@ int rsbac_write_open(char *name, struct file **file_pi, kdev_t kdev)
 				new_dir_p =
 				    dget(new_file_dentry_p->d_parent);
 				double_lock(new_dir_p, old_dir_p);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,34)
 				dquot_initialize(old_dir_p->d_inode);
 				dquot_initialize(new_dir_p->d_inode);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30)
-				vfs_dq_init(old_dir_p->d_inode);
-				vfs_dq_init(new_dir_p->d_inode);
-#else
-				DQUOT_INIT(old_dir_p->d_inode);
-				DQUOT_INIT(new_dir_p->d_inode);
-#endif
 				/* try to rename file in rsbac dir */
 				/* rsbac_pr_debug(write, "calling rename function\n"); */
 				err =
@@ -2576,14 +2570,7 @@ int rsbac_write_open(char *name, struct file **file_pi, kdev_t kdev)
 						old_dir_p =
 						    lock_parent
 						    (file_dentry_p);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,34)
 						dquot_initialize(old_dir_p->d_inode);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30)
-						vfs_dq_init(old_dir_p->d_inode);
-#else
-						DQUOT_INIT(old_dir_p->
-							   d_inode);
-#endif
 						err = -ENOENT;
 							err =
 							    dir_dentry_p->
@@ -2669,13 +2656,7 @@ int rsbac_write_open(char *name, struct file **file_pi, kdev_t kdev)
 		}
 		/* try to create file in rsbac dir */
 		/* rsbac_pr_debug(write, "calling create function\n"); */
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,34)
 		dquot_initialize(ldir_dentry_p->d_inode);
-#elif LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,30)
-		vfs_dq_init(ldir_dentry_p->d_inode);
-#else
-		DQUOT_INIT(ldir_dentry_p->d_inode);
-#endif
 		err =
 		    dir_dentry_p->d_inode->i_op->create(ldir_dentry_p->
 							d_inode,

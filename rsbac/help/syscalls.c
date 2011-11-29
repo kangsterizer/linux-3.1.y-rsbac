@@ -3,7 +3,7 @@
 /* Implementation of RSBAC general system calls      */
 /* Author and (C) 1999-2011: Amon Ott <ao@rsbac.org> */
 /*                                                   */
-/* Last modified: 12/Jul/2011                        */
+/* Last modified: 17/Oct/2011                        */
 /*************************************************** */
 
 #include <rsbac/types.h>
@@ -654,6 +654,14 @@ int sys_rsbac_set_attr(
             k_tid.group = RSBAC_GID_NUM(k_tid.group);
 #endif
             break;
+
+          case T_FD:
+          case T_FILE:
+          case T_DIR:
+          case T_FIFO:
+          case T_SYMLINK:
+          case T_UNIXSOCK:
+            return -RSBAC_EINVALIDTARGET;
 
           default:
             break;

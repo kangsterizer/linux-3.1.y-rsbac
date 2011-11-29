@@ -6,7 +6,7 @@
 /*                                                   */
 /* Author and (c) 1999-2011: Amon Ott <ao@rsbac.org> */
 /*                                                   */
-/* Last modified: 21/Nov/2011                        */
+/* Last modified: 29/Nov/2011                        */
 /*************************************************** */
 
 #include <linux/string.h>
@@ -2027,9 +2027,68 @@ rsbac_adf_request_rc(enum rsbac_adf_request_t request,
 		}
 
 
-#if defined(CONFIG_RSBAC_NET)
 	case R_BIND:
 		switch (target) {
+		case T_IPC:
+			/* check, whether we may create IPC of def_ipc_create_type */
+			/* get rc_role from process */
+			i_tid.process = caller_pid;
+			if ((err = rsbac_get_attr(SW_RC, T_PROCESS,
+						  i_tid,
+						  A_rc_role,
+						  &i_attr_val1, FALSE))) {
+				rsbac_pr_get_error(A_rc_role);
+				return NOT_GRANTED;
+			}
+			/* get def_ipc_create_type of role */
+			i_rc_tid.role = i_attr_val1.rc_role;
+			if ((err = rsbac_rc_get_item(0,
+						     RT_ROLE,
+						     i_rc_tid,
+						     i_rc_tid,
+						     RI_def_ipc_create_type,
+						     &i_rc_item_val1,
+						     NULL))) {
+				rsbac_rc_pr_get_error
+				    (RI_def_ipc_create_type);
+				return NOT_GRANTED;
+			}
+			switch (i_rc_item_val1.type_id) {
+			case RC_type_no_create:
+				rsbac_pr_debug(adf_rc, "pid %u (%.15s), owner %u, rc_role %u, def_ipc_create_type no_create, request CREATE -> NOT_GRANTED!\n",
+					       pid_nr(caller_pid), current->comm,
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,29)
+					       current_uid(),
+#else
+					       current->uid,
+#endif
+					       i_attr_val1.rc_role);
+				return NOT_GRANTED;
+
+			case RC_type_use_new_role_def_create:
+				/* error - complain and return error */
+				rsbac_printk(KERN_WARNING "rsbac_adf_request_rc(): invalid type use_new_role_def_create in def_ipc_create_type of role %i!\n",
+					     i_attr_val1.rc_role);
+				return NOT_GRANTED;
+
+			case RC_type_inherit_parent:
+			case RC_type_inherit_process:
+			case RC_type_use_fd:
+				/* error - complain and return error */
+				rsbac_printk(KERN_WARNING "rsbac_adf_request_rc(): invalid type inherit_parent in def_ipc_create_type of role %i!\n",
+					     i_attr_val1.rc_role);
+				return NOT_GRANTED;
+
+			default:
+				/* check, whether role has CREATE right to new type */
+				/* get type_comp_ipc of role */
+				i_rc_subtid.type = i_rc_item_val1.type_id;
+				return rc_check_create(caller_pid,
+							target,
+							i_rc_tid,
+							i_rc_subtid,
+							RI_type_comp_ipc);
+			}
 #if defined(CONFIG_RSBAC_RC_NET_DEV_PROT)
 		case T_NETDEV:
 			return check_comp_rc
@@ -2046,7 +2105,6 @@ rsbac_adf_request_rc(enum rsbac_adf_request_t request,
 		default:
 			return DO_NOT_CARE;
 		}
-#endif
 
 	case R_IOCTL:
 		switch (target) {
@@ -2941,6 +2999,114 @@ inline int rsbac_adf_set_attr_rc(enum rsbac_adf_request_t request,
 		default:
 			return 0;
 		}
+	case R_BIND:
+		switch (target) {
+		case T_IPC:
+			/* get rc_role from process */
+			i_tid.process = caller_pid;
+			if ((err = rsbac_get_attr(SW_RC, T_PROCESS,
+						  i_tid,
+						  A_rc_role,
+						  &i_attr_val1, FALSE))) {
+				rsbac_pr_get_error(A_rc_role);
+				return -RSBAC_EREADFAILED;
+			}
+			/* get def_ipc_create_type of role */
+			i_rc_tid.role = i_attr_val1.rc_role;
+			if ((err = rsbac_rc_get_item(0,
+						     RT_ROLE,
+						     i_rc_tid,
+						     i_rc_tid,
+						     RI_def_ipc_create_type,
+						     &i_rc_item_val1,
+						     NULL))) {
+				rsbac_rc_pr_get_error
+				    (RI_def_ipc_create_type);
+				return -RSBAC_EREADFAILED;
+			}
+			switch (i_rc_item_val1.type_id) {
+			case RC_type_no_create:
+				return -RSBAC_EDECISIONMISMATCH;
+				break;
+
+			case RC_type_use_new_role_def_create:
+				/* error - complain and return error */
+				rsbac_printk(KERN_WARNING "rsbac_adf_set_attr_rc(): invalid type use_new_role_def_create in def_ipc_create_type of role %i!\n",
+					     i_attr_val1.rc_role);
+				return -RSBAC_EINVALIDVALUE;
+
+			case RC_type_inherit_parent:
+			case RC_type_inherit_process:
+				/* error - complain and return error */
+				rsbac_printk(KERN_WARNING "rsbac_adf_set_attr_rc(): invalid type inherit_parent in def_ipc_create_type of role %i!\n",
+					     i_attr_val1.rc_role);
+				return -RSBAC_EINVALIDVALUE;
+
+			default:
+				/* set rc_type for ipc target */
+				i_attr_val1.rc_type =
+				    i_rc_item_val1.type_id;
+				/* get type from target */
+				if ((err = rsbac_get_attr(SW_RC,
+							  target,
+							  tid,
+							  A_rc_type,
+							  &i_attr_val2,
+							  FALSE))) {
+					rsbac_pr_get_error(A_rc_type);
+					return -RSBAC_EREADFAILED;
+				}
+				/* set it for new target, if different */
+				if (i_attr_val1.rc_type !=
+				    i_attr_val2.rc_type) {
+					if ((err =
+					     rsbac_set_attr(SW_RC, target,
+							    tid, A_rc_type,
+							    i_attr_val1)))
+					{
+						rsbac_pr_set_error
+						    (A_rc_type);
+						return -RSBAC_EWRITEFAILED;
+					}
+				}
+			}
+			return 0;
+
+			/* all other cases are unknown */
+		default:
+			return 0;
+		}
+
+	case R_CONNECT:
+		switch (target) {
+		case T_IPC:
+			if (new_target == T_IPC) {
+				/* get type from old target */
+				i_tid.process = caller_pid;
+				if ((err = rsbac_get_attr(SW_RC, T_IPC,
+							  tid,
+							  A_rc_type,
+							  &i_attr_val1, FALSE))) {
+					rsbac_pr_get_error(A_rc_role);
+					return -RSBAC_EREADFAILED;
+				}
+				/* set rc_type for new ipc target, if not 0 */
+				if (i_attr_val1.rc_type) {
+					if ((err = rsbac_set_attr(SW_RC, T_IPC,
+							    new_tid, A_rc_type,
+							    i_attr_val1))) {
+						rsbac_pr_set_error(A_rc_type);
+						return -RSBAC_EWRITEFAILED;
+					}
+				}
+			}
+			return 0;
+
+			/* all other cases are unknown */
+		default:
+			return 0;
+		}
+
 	default:
 		return 0;
 	}
