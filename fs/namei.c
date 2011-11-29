@@ -2631,7 +2631,7 @@ out:
 		mnt_drop_write(nd->path.mnt);
 
 #ifdef CONFIG_RSBAC
-	if ((rsbac_adf_req != R_NONE) && (rsbac_target != T_NONE)) {
+	if (!PTR_ERR(filp) && (rsbac_adf_req != R_NONE) && (rsbac_target != T_NONE)) {
 		rsbac_new_target_id.dummy = 0;
 		if (rsbac_adf_set_attr(rsbac_adf_req,
 					task_pid(current),
