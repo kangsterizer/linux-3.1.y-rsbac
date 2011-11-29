@@ -2582,18 +2582,16 @@ common:
 	if (open_flag & O_APPEND)
 		rsbac_adf_req = R_APPEND_OPEN;
 	else
-		if ((open_flag & FMODE_WRITE) && (open_flag & FMODE_READ))
+		if ((open_flag & O_RDWR) || ((open_flag & O_WRONLY) && (open_flag & O_RDONLY)))
 			rsbac_adf_req = R_READ_WRITE_OPEN;
 		else
-			if (open_flag & FMODE_WRITE)
+			if (open_flag & O_WRONLY)
 				rsbac_adf_req = R_WRITE_OPEN;
 			else
-				if (open_flag & FMODE_READ) {
-					if (rsbac_target == T_DIR)
-						rsbac_adf_req = R_READ;
-					else
-						rsbac_adf_req = R_READ_OPEN;
-				}
+				if (rsbac_target == T_DIR)
+					rsbac_adf_req = R_READ;
+				else
+					rsbac_adf_req = R_READ_OPEN;
 	if ((rsbac_adf_req != R_NONE) && (rsbac_target != T_NONE)) {
 		rsbac_attribute_value.open_flag = open_flag;
 		if (!rsbac_adf_request(rsbac_adf_req,
