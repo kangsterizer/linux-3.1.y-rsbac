@@ -1185,7 +1185,7 @@ restart:
 			rsbac_printk(KERN_WARNING
 					"unix_dgram_connect() [sys_connect() [sys_socketcall()]]: rsbac_adf_set_attr() returned error\n");
 	}
-        #endif
+#endif
 
 	return 0;
 
@@ -1599,6 +1599,7 @@ static int unix_accept(struct socket *sock, struct socket *newsock, int flags)
 	/* attach accepted sock to socket */
 	unix_state_lock(tsk);
 	newsock->state = SS_CONNECTED;
+
 #ifdef CONFIG_RSBAC
 	/* copy dentry and mnt, if there */
 	if (unix_sk(sk)->dentry) {
@@ -1612,6 +1613,7 @@ static int unix_accept(struct socket *sock, struct socket *newsock, int flags)
 		}
 	}
 #endif
+
 	sock_graft(tsk, newsock);
 	unix_state_unlock(tsk);
 	return 0;
