@@ -1,5 +1,13 @@
 RSBAC Changes
 -------------
+1.4.6:
+	- Port everything to kernel 3.1.5
+	- Show process name and parent when logging PROCESS target accesses
+	- Add RSBAC syscalls to get and set UM password history size per
+	  user.
+	- Do not allow to set attributes for FD targets with
+	  sys_rsbac_set_attr()
+
 1.4.5:
 	- Fix symlink's stat() call to return the real symlink size
 	  Fixes program that would assert on stat->s_size being the same size as when using readlink()
