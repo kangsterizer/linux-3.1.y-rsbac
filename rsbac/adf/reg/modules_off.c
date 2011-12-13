@@ -1,7 +1,8 @@
 /*
  *   RSBAC REG decision module kproc_hide. Disabling kernel modules support.
  *   
- *   Author and (c) 2004 Michal Purzynski <albeiro@rsbac.org>
+ *   Author and (c) 2004 Michal Purzynski <michal@rsbac.org>
+ *   Adjusted 2011 Amon Ott <ao@rsbac.org>
  */
 
 #include <linux/module.h>
@@ -24,9 +25,6 @@ MODULE_LICENSE("GPL");
 
 static long handle = 9999991;
 
-static rsbac_inode_nr_t inode_nr = 0;
-static kdev_t device_nr = 0;
-
 /**** Decision Functions ****/
 
 static int request_func (enum rsbac_adf_request_t	request,
@@ -41,14 +39,6 @@ static int request_func (enum rsbac_adf_request_t	request,
 		case R_ADD_TO_KERNEL:
 		case R_REMOVE_FROM_KERNEL:
 			return NOT_GRANTED;
-		case R_GET_STATUS_DATA:
-			switch (target) {
-				case T_FILE:
-					if (tid.file.device == device_nr && tid.file.inode == inode_nr)
-					return NOT_GRANTED;
-				default:
-					return DO_NOT_CARE;
-			}
 		default:
 			return DO_NOT_CARE;
 	}
@@ -60,12 +50,6 @@ int init_module(void)
 {
 
 	struct rsbac_reg_entry_t entry;
-	struct nameidata nd;
-
-	path_lookup("/proc/modules", 0, &nd);
-	device_nr = nd.path.dentry->d_sb->s_dev;
-	inode_nr = nd.path.dentry->d_inode->i_ino;
-	path_put(&nd.path);
 
 	rsbac_printk(KERN_INFO "RSBAC REG decision module modules_off: Initializing.\n");
 
