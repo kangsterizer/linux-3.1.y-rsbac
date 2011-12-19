@@ -4319,55 +4319,67 @@ static void ta_remove_all_lol_items(struct rsbac_list_lol_reg_item_t *list,
 /* Remove registration items */
 
 /* no locking needed */
-static void clear_reg(struct rsbac_list_reg_item_t *item_p)
+static void clear_reg(struct rsbac_list_reg_item_t *reg_item_p)
 {
-	if (item_p) {
+	if (reg_item_p) {
 		int i;
+	        struct rsbac_list_item_t *item_p;
+	        struct rsbac_list_item_t *new_item_p;
 
 		/* now we can remove the item from memory */
-		for (i=0; i<item_p->nr_hashes; i++) {
-			remove_all_items(item_p, i);
+		synchronize_rcu();
+		for (i=0; i<reg_item_p->nr_hashes; i++) {
+			item_p = reg_item_p->hashed[i].head;
+			while(item_p) {
+				new_item_p = item_p->next;
+				rsbac_sfree(reg_item_p->slab, item_p);
+				item_p = new_item_p;
+			}
 #ifdef CONFIG_RSBAC_LIST_TRANS
-			if(item_p->hashed[i].ta_copied)
-				ta_remove_all_items(item_p, i);
+			if(reg_item_p->hashed[i].ta_copied) {
+				item_p = reg_item_p->hashed[i].ta_head;
+				while(item_p) {
+					new_item_p = item_p->next;
+					rsbac_sfree(reg_item_p->slab, item_p);
+					item_p = new_item_p;
+				}
+			}
 #endif
 		}
-		if (item_p->def_data)
-			rsbac_kfree(item_p->def_data);
-		if (item_p->slab) {
-			synchronize_rcu();
-			rsbac_slab_destroy(item_p->slab);
-		}
-		if (item_p->slabname)
-			rsbac_kfree(item_p->slabname);
-		if (item_p->hashed)
-			rsbac_kfree(item_p->hashed);
-		rsbac_sfree(reg_item_slab, item_p);
+		if (reg_item_p->def_data)
+			rsbac_kfree(reg_item_p->def_data);
+		if (reg_item_p->slab)
+			rsbac_slab_destroy(reg_item_p->slab);
+		if (reg_item_p->slabname)
+			rsbac_kfree(reg_item_p->slabname);
+		if (reg_item_p->hashed)
+			rsbac_kfree(reg_item_p->hashed);
+		rsbac_sfree(reg_item_slab, reg_item_p);
 	}
 }
 
 /* locking needed */
-static void remove_reg(struct rsbac_list_reg_item_t *item_p)
+static void remove_reg(struct rsbac_list_reg_item_t *reg_item_p)
 {
 	/* first we must locate the item. */
-	if (item_p && (item_p->self == item_p)) {/* item found and valid */
+	if (reg_item_p && (reg_item_p->self == reg_item_p)) {/* item found and valid */
 		/* protect against reuse */
-		item_p->self = NULL;
-		if ((reg_head.head == item_p)) {	/* item is head */
-			if ((reg_head.tail == item_p)) {	/* item is head and tail = only item -> list will be empty */
+		reg_item_p->self = NULL;
+		if ((reg_head.head == reg_item_p)) {	/* item is head */
+			if ((reg_head.tail == reg_item_p)) {	/* item is head and tail = only item -> list will be empty */
 				rcu_assign_pointer(reg_head.head, NULL);
 				rcu_assign_pointer(reg_head.tail, NULL);
 			} else {	/* item is head, but not tail -> next item becomes head */
-				item_p->next->prev = NULL;
-				rcu_assign_pointer(reg_head.head, item_p->next);
+				reg_item_p->next->prev = NULL;
+				rcu_assign_pointer(reg_head.head, reg_item_p->next);
 			}
 		} else {	/* item is not head */
-			if ((reg_head.tail == item_p)) {	/*item is not head, but tail -> previous item becomes tail */
-				item_p->prev->next = NULL;
-				rcu_assign_pointer(reg_head.tail, item_p->prev);
+			if ((reg_head.tail == reg_item_p)) {	/*item is not head, but tail -> previous item becomes tail */
+				reg_item_p->prev->next = NULL;
+				rcu_assign_pointer(reg_head.tail, reg_item_p->prev);
 			} else {	/* item is neither head nor tail -> item is cut out */
-				item_p->prev->next = item_p->next;
-				item_p->next->prev = item_p->prev;
+				reg_item_p->prev->next = reg_item_p->next;
+				reg_item_p->next->prev = reg_item_p->prev;
 			}
 		}
 
@@ -4379,62 +4391,88 @@ static void remove_reg(struct rsbac_list_reg_item_t *item_p)
 }
 
 /* no locking needed */
-static void clear_lol_reg(struct rsbac_list_lol_reg_item_t *item_p)
+static void clear_lol_reg(struct rsbac_list_lol_reg_item_t *reg_item_p)
 {
 	int i;
 
-	if (item_p) {
+	if (reg_item_p) {
+	        struct rsbac_list_lol_item_t *lol_item_p;
+	        struct rsbac_list_lol_item_t *new_lol_item_p;
+	        struct rsbac_list_item_t * lol_subitem_p;
+	        struct rsbac_list_item_t * new_lol_subitem_p;
+
 		/* now we can remove the item from memory */
-		for (i=0; i<item_p->nr_hashes; i++) {
-			remove_all_lol_items(item_p, i);
+		synchronize_rcu();
+		for (i=0; i<reg_item_p->nr_hashes; i++) {
+			lol_item_p = reg_item_p->hashed[i].head;
+			while(lol_item_p) {
+				lol_subitem_p = lol_item_p->head;
+				while (lol_subitem_p) {
+					new_lol_subitem_p = lol_subitem_p->next;
+					rsbac_sfree(reg_item_p->subslab, lol_subitem_p);
+					lol_subitem_p = new_lol_subitem_p;
+				}
+				new_lol_item_p = lol_item_p->next;
+				rsbac_sfree(reg_item_p->slab, lol_item_p);
+				lol_item_p = new_lol_item_p;
+			}
 #ifdef CONFIG_RSBAC_LIST_TRANS
-			if(item_p->hashed[i].ta_copied)
-				ta_remove_all_lol_items(item_p, i);
+			if(reg_item_p->hashed[i].ta_copied) {
+				lol_item_p = reg_item_p->hashed[i].ta_head;
+				while(lol_item_p) {
+					lol_subitem_p = lol_item_p->head;
+					while (lol_subitem_p) {
+						new_lol_subitem_p = lol_subitem_p->next;
+						rsbac_sfree(reg_item_p->subslab, lol_subitem_p);
+						lol_subitem_p = new_lol_subitem_p;
+					}
+					new_lol_item_p = lol_item_p->next;
+					rsbac_sfree(reg_item_p->slab, lol_item_p);
+					lol_item_p = new_lol_item_p;
+				}
+			}
 #endif
 		}
-		if (item_p->def_data)
-			rsbac_kfree(item_p->def_data);
-		if (item_p->def_subdata)
-			rsbac_kfree(item_p->def_subdata);
-		if (item_p->slab || item_p->subslab) {
-			synchronize_rcu();
-			if (item_p->slab)
-				rsbac_slab_destroy(item_p->slab);
-			if (item_p->subslab)
-				rsbac_slab_destroy(item_p->subslab);
-		}
-		if (item_p->slabname)
-			rsbac_kfree(item_p->slabname);
-		if (item_p->subslabname)
-			rsbac_kfree(item_p->subslabname);
-		if (item_p->hashed)
-			rsbac_kfree(item_p->hashed);
-		rsbac_sfree(lol_reg_item_slab, item_p);
+		if (reg_item_p->def_data)
+			rsbac_kfree(reg_item_p->def_data);
+		if (reg_item_p->def_subdata)
+			rsbac_kfree(reg_item_p->def_subdata);
+		if (reg_item_p->slab)
+			rsbac_slab_destroy(reg_item_p->slab);
+		if (reg_item_p->subslab)
+			rsbac_slab_destroy(reg_item_p->subslab);
+		if (reg_item_p->slabname)
+			rsbac_kfree(reg_item_p->slabname);
+		if (reg_item_p->subslabname)
+			rsbac_kfree(reg_item_p->subslabname);
+		if (reg_item_p->hashed)
+			rsbac_kfree(reg_item_p->hashed);
+		rsbac_sfree(lol_reg_item_slab, reg_item_p);
 	}
 }
 
 /* locking needed */
-static void remove_lol_reg(struct rsbac_list_lol_reg_item_t *item_p)
+static void remove_lol_reg(struct rsbac_list_lol_reg_item_t *reg_item_p)
 {
 	/* first we must locate the item. */
-	if (item_p && (item_p->self == item_p)) {/* found */
+	if (reg_item_p && (reg_item_p->self == reg_item_p)) {/* found */
 		/* protect against reuse */
-		item_p->self = NULL;
-		if ((lol_reg_head.head == item_p)) {	/* item is head */
-			if ((lol_reg_head.tail == item_p)) {	/* item is head and tail = only item -> list will be empty */
+		reg_item_p->self = NULL;
+		if ((lol_reg_head.head == reg_item_p)) {	/* item is head */
+			if ((lol_reg_head.tail == reg_item_p)) {	/* item is head and tail = only item -> list will be empty */
 				rcu_assign_pointer(lol_reg_head.head, NULL);
 				rcu_assign_pointer(lol_reg_head.tail, NULL);
 			} else {	/* item is head, but not tail -> next item becomes head */
-				item_p->next->prev = NULL;
-				rcu_assign_pointer(lol_reg_head.head, item_p->next);
+				reg_item_p->next->prev = NULL;
+				rcu_assign_pointer(lol_reg_head.head, reg_item_p->next);
 			}
 		} else {	/* item is not head */
-			if ((lol_reg_head.tail == item_p)) {	/*item is not head, but tail -> previous item becomes tail */
-				item_p->prev->next = NULL;
-				rcu_assign_pointer(lol_reg_head.tail, item_p->prev);
+			if ((lol_reg_head.tail == reg_item_p)) {	/*item is not head, but tail -> previous item becomes tail */
+				reg_item_p->prev->next = NULL;
+				rcu_assign_pointer(lol_reg_head.tail, reg_item_p->prev);
 			} else {	/* item is neither head nor tail -> item is cut out */
-				item_p->prev->next = item_p->next;
-				item_p->next->prev = item_p->prev;
+				reg_item_p->prev->next = reg_item_p->next;
+				reg_item_p->next->prev = reg_item_p->prev;
 			}
 		}
 
