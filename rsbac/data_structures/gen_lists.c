@@ -3,7 +3,7 @@
 /* Author and (c) 1999-2011:           */
 /*   Amon Ott <ao@rsbac.org>           */
 /* Generic lists for all parts         */
-/* Last modified: 12/Jul/2011          */
+/* Last modified: 19/Dec/2011          */
 /************************************* */
 
 #include <linux/sched.h>
@@ -174,8 +174,11 @@ static void rcu_free(struct rsbac_list_reg_item_t * list, void * mem)
 {
 	struct rsbac_list_rcu_free_item_t * rcu_item;
 
-	if (!create_rcu_free(list))
+	if (!create_rcu_free(list)) {
+		rsbac_printk(KERN_WARNING "rcu_free(): cannot allocate rcu_free_head for list %s, loosing item %p!\n",
+			     list->name, mem);
 		return;
+	}
 #ifdef CONFIG_RSBAC_LIST_STATS
 	rcu_free_calls++;
 #endif
@@ -195,8 +198,11 @@ static void rcu_free(struct rsbac_list_reg_item_t * list, void * mem)
 		rcu_item->mem = mem;
 		rcu_item->next = list->rcu_free->head;
 		list->rcu_free->head = rcu_item;
-	} else
+	} else {
+		rsbac_printk(KERN_WARNING "rcu_free(): cannot allocate rcu_free for list %s, loosing item %p!\n",
+			     list->name, mem);
 		rcu_callback_count = rsbac_list_rcu_rate;
+	}
 }
 
 /* Call spinlocked */
@@ -204,8 +210,11 @@ static void rcu_free_lol(struct rsbac_list_lol_reg_item_t * list, void * mem)
 {
 	struct rsbac_list_rcu_free_item_t * rcu_item;
 
-	if (!create_rcu_free_lol(list))
+	if (!create_rcu_free_lol(list)) {
+		rsbac_printk(KERN_WARNING "rcu_free_lol(): cannot allocate rcu_free_head for list of lists %s, loosing item %p!\n",
+			     list->name, mem);
 		return;
+	}
 #ifdef CONFIG_RSBAC_LIST_STATS
 	rcu_free_lol_calls++;
 #endif
@@ -225,16 +234,22 @@ static void rcu_free_lol(struct rsbac_list_lol_reg_item_t * list, void * mem)
 		rcu_item->mem = mem;
 		rcu_item->next = list->rcu_free->head;
 		list->rcu_free->head = rcu_item;
-	} else
+	} else {
+		rsbac_printk(KERN_WARNING "rcu_free_lol(): cannot allocate rcu_free for list of lists %s, loosing item %p!\n",
+			     list->name, mem);
 		rcu_callback_count = rsbac_list_rcu_rate;
+	}
 }
 
 static void rcu_free_lol_sub(struct rsbac_list_lol_reg_item_t * list, void * mem)
 {
 	struct rsbac_list_rcu_free_item_t * rcu_item;
 
-	if (!create_rcu_free_lol(list))
+	if (!create_rcu_free_lol(list)) {
+		rsbac_printk(KERN_WARNING "rcu_free_lol_sub(): cannot allocate rcu_free_head for list of lists %s, loosing subitem %p!\n",
+			     list->name, mem);
 		return;
+	}
 #ifdef CONFIG_RSBAC_LIST_STATS
 	rcu_free_lol_calls++;
 #endif
@@ -254,16 +269,24 @@ static void rcu_free_lol_sub(struct rsbac_list_lol_reg_item_t * list, void * mem
 		rcu_item->mem = mem;
 		rcu_item->next = list->rcu_free->subhead;
 		list->rcu_free->subhead = rcu_item;
-	} else
+	} else {
+		rsbac_printk(KERN_WARNING "rcu_free_lol_sub(): cannot allocate rcu_free for list of lists %s, loosing subitem %p!\n",
+			     list->name, mem);
 		rcu_callback_count = rsbac_list_rcu_rate;
+	}
 }
 
 /* Call spinlocked */
 static void rcu_free_item_chain(struct rsbac_list_reg_item_t * list,
 				struct rsbac_list_item_t * item_chain)
 {
-	if (!item_chain || !create_rcu_free(list))
+	if (!item_chain)
 		return;
+	if (!create_rcu_free(list)) {
+		rsbac_printk(KERN_WARNING "rcu_free_item_chain(): cannot allocate rcu_free_head for list %s, loosing chain %p!\n",
+			     list->name, item_chain);
+		return;
+	}
 #ifdef CONFIG_RSBAC_LIST_STATS
 	rcu_free_item_chain_calls++;
 #endif
@@ -281,8 +304,13 @@ static void rcu_free_item_chain(struct rsbac_list_reg_item_t * list,
 static void rcu_free_lol_subitem_chain(struct rsbac_list_lol_reg_item_t * list,
 				struct rsbac_list_item_t * subitem_chain)
 {
-	if (!subitem_chain || !create_rcu_free_lol(list))
+	if (!subitem_chain)
 		return;
+	if (!create_rcu_free_lol(list)) {
+		rsbac_printk(KERN_WARNING "rcu_free_lol_subitem_chain(): cannot allocate rcu_free_head for list of lists %s, loosing subchain %p!\n",
+			     list->name, subitem_chain);
+		return;
+	}
 #ifdef CONFIG_RSBAC_LIST_STATS
 	rcu_free_lol_subitem_chain_calls++;
 #endif
@@ -300,8 +328,13 @@ static void rcu_free_lol_subitem_chain(struct rsbac_list_lol_reg_item_t * list,
 static void rcu_free_lol_item_chain(struct rsbac_list_lol_reg_item_t * list,
 				struct rsbac_list_lol_item_t * lol_item_chain)
 {
-	if (!lol_item_chain || !create_rcu_free_lol(list))
+	if (!lol_item_chain)
 		return;
+	if (!create_rcu_free_lol(list)) {
+		rsbac_printk(KERN_WARNING "rcu_free_lol_item_chain(): cannot allocate rcu_free_head for list of lists %s, loosing chain %p!\n",
+			     list->name, lol_item_chain);
+		return;
+	}
 #ifdef CONFIG_RSBAC_LIST_STATS
 	rcu_free_lol_item_chain_calls++;
 #endif
