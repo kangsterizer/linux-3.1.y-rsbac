@@ -2755,9 +2755,9 @@ void rsbac_write_close(struct file *file_p)
 }
 
 #if defined(CONFIG_RSBAC_REG)
-EXPORT_SYMBOL(rsbac_get_full_path);
+EXPORT_SYMBOL(rsbac_lookup_full_path);
 #endif
-int rsbac_get_full_path(struct dentry *dentry_p, char path[], int maxlen)
+int rsbac_lookup_full_path(struct dentry *dentry_p, char path[], int maxlen, int pseudonymize)
 {
 	int len = 0;
 	char *i_path;
@@ -2781,7 +2781,8 @@ int rsbac_get_full_path(struct dentry *dentry_p, char path[], int maxlen)
 	while (dentry_p && (len < maxlen) && dentry_p->d_name.len
 	       && dentry_p->d_name.name) {
 #ifdef CONFIG_RSBAC_LOG_PSEUDO_FS
-		if (dentry_p->d_inode
+		if (   pseudonymize
+		    && dentry_p->d_inode
 		    && dentry_p->d_parent
 		    && dentry_p->d_parent->d_inode
 		    && (i_tid.user = dentry_p->d_inode->i_uid)

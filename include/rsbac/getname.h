@@ -80,7 +80,12 @@ extern char * get_log_level_name(char *,
 extern enum rsbac_log_level_t get_log_level_nr(const char *);
 
 #ifdef __KERNEL__
-int rsbac_get_full_path(struct dentry * dentry_p, char path[], int maxlen);
+int rsbac_lookup_full_path(struct dentry * dentry_p, char path[], int maxlen, int pseudonymize);
+
+static inline int rsbac_get_full_path(struct dentry * dentry_p, char path[], int maxlen)
+{
+  return rsbac_lookup_full_path(dentry_p, path, maxlen, 1);
+}
 #endif
 
 char * get_cap_name(char * name,

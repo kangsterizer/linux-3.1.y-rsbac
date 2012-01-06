@@ -346,7 +346,7 @@ inline int xp_fill_file_struct(struct dazuko_file_struct *dfs)
 	dfs->extra_data->full_filename = rsbac_smalloc_unlocked(dazuko_filename_slab);
 	if (dfs->extra_data->full_filename == NULL)
 		return -1;
-	rsbac_get_full_path(dfs->extra_data->dentry, dfs->extra_data->full_filename, DAZ_MAX_FILENAME);
+	rsbac_lookup_full_path(dfs->extra_data->dentry, dfs->extra_data->full_filename, DAZ_MAX_FILENAME, 0);
 
 	rsbac_pr_debug(adf_daz, "pid %u (%.15s), file is %s!\n",
 				       current->pid, current->comm,
