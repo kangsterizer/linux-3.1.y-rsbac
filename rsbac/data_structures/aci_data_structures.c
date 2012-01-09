@@ -433,9 +433,12 @@ static int lookup_aci_path_dentry(struct vfsmount *mnt_p,
 		       mnt_p->mnt_sb->s_root->d_count);
 	spin_unlock(&mnt_p->mnt_sb->s_root->d_lock);
 
+	mutex_lock_nested(&mnt_p->mnt_sb->s_root->d_inode->i_mutex, I_MUTEX_XATTR);
 	dir_dentry_p =
 	    rsbac_lookup_one_len(RSBAC_ACI_PATH, mnt_p->mnt_sb->s_root,
 				 strlen(RSBAC_ACI_PATH));
+	mutex_unlock(&mnt_p->mnt_sb->s_root->d_inode->i_mutex);
+
 	if (IS_ERR(dir_dentry_p))
 		switch (PTR_ERR(dir_dentry_p)) {
 		case -ENOENT:
@@ -2311,7 +2314,7 @@ int rsbac_read_open(char *name, struct file **file_pi, kdev_t kdev)
 	struct dentry *file_dentry_p;
 	struct file *file_p;
 	struct path path;
-	int err;
+	int err = 0;
 	struct vfsmount *mnt_p;
 
 	if (!name || !file_pi) {
@@ -2325,19 +2328,23 @@ int rsbac_read_open(char *name, struct file **file_pi, kdev_t kdev)
 			     RSBAC_MAJOR(kdev), RSBAC_MINOR(kdev));
 		return -RSBAC_EINVALIDDEV;
 	}
+
 	/* lookup dentry of ACI_PATH on root device, lock is released there */
 	if ((err =
 	     lookup_aci_path_dentry(mnt_p, &dir_dentry_p, FALSE, kdev))) {
-		return err;
+		goto out;
 	}
 
+	mutex_lock(&dir_dentry_p->d_inode->i_mutex);
 	/* open file for reading - this must be done 'by hand', because     */
 	/* standard system calls are now extended by rsbac decision calls.  */
 	file_dentry_p =
 	    rsbac_lookup_one_len(name, dir_dentry_p, strlen(name));
+	mutex_unlock(&dir_dentry_p->d_inode->i_mutex);
 
 	if (!file_dentry_p || IS_ERR(file_dentry_p)) {	/* error in lookup */
-		return -RSBAC_EREADFAILED;
+		err = -RSBAC_EREADFAILED;
+		goto out;
 	}
 	if (!file_dentry_p->d_inode || !file_dentry_p->d_inode->i_size) {
 		/* file not found or empty: trying backup */
@@ -2347,7 +2354,8 @@ int rsbac_read_open(char *name, struct file **file_pi, kdev_t kdev)
 		dput(file_dentry_p);
 		bname = rsbac_kmalloc(RSBAC_MAXNAMELEN);
 		if (!bname) {
-			return -RSBAC_ENOMEM;
+			err = -RSBAC_ENOMEM;
+			goto out;
 		}
 
 		strcpy(bname, name);
@@ -2356,9 +2364,12 @@ int rsbac_read_open(char *name, struct file **file_pi, kdev_t kdev)
 		bname[name_len] = (char) 0;
 		rsbac_pr_debug(ds, "could not lookup file %s, trying backup %s\n",
 			     name, bname);
+
+		mutex_lock(&dir_dentry_p->d_inode->i_mutex);
 		file_dentry_p =
 		    rsbac_lookup_one_len(bname, dir_dentry_p,
 					 strlen(bname));
+		mutex_unlock(&dir_dentry_p->d_inode->i_mutex);
 		rsbac_kfree(bname);
 		if (!file_dentry_p || IS_ERR(file_dentry_p)) {	/* error in lookup */
 			return -RSBAC_EREADFAILED;
@@ -2368,13 +2379,16 @@ int rsbac_read_open(char *name, struct file **file_pi, kdev_t kdev)
 			rsbac_pr_debug(ds, "backup file %sb not found or empty\n",
 				       name);
 			dput(file_dentry_p);
-			return -RSBAC_ENOTFOUND;
+			err = -RSBAC_ENOTFOUND;
+			goto out;
 		}
 	}
 	if (!(S_ISREG(file_dentry_p->d_inode->i_mode))) {	/* this is not a file! -> error! */
 		rsbac_printk(KERN_WARNING "rsbac_read_open(): expected file is not a file!\n");
+		mutex_unlock(&dir_dentry_p->d_inode->i_mutex);
 		dput(file_dentry_p);
-		return -RSBAC_EREADFAILED;
+		err = -RSBAC_EREADFAILED;
+		goto out;
 	}
 
 	/* Now we fill the file structure and */
@@ -2387,7 +2401,8 @@ int rsbac_read_open(char *name, struct file **file_pi, kdev_t kdev)
 		path_put(&path);
 		rsbac_printk(KERN_WARNING "rsbac_read_open(): could not open file '%s'!\n",
 			     name);
-		return -RSBAC_EREADFAILED;
+		err = -RSBAC_EREADFAILED;
+		goto out;
 	}
 
 	/* if there is no read func, we get a problem -> error */
@@ -2403,15 +2418,17 @@ int rsbac_read_open(char *name, struct file **file_pi, kdev_t kdev)
 						      d_inode, file_p);
 		}
 		path_put(&path);
-		return -RSBAC_EREADFAILED;
+		err = -RSBAC_EREADFAILED;
+		goto out;
 	}
 
 	*file_pi = file_p;
 
 	if (file_p->f_op->open)
-		return file_p->f_path.dentry->d_inode->i_fop->open(path.dentry->d_inode, file_p);
-	else
-		return 0;
+		err = file_p->f_path.dentry->d_inode->i_fop->open(path.dentry->d_inode, file_p);
+
+out:
+	return err;
 }
 
 #ifndef check_parent
@@ -2462,10 +2479,12 @@ int rsbac_write_open(char *name, struct file **file_pi, kdev_t kdev)
 		goto out;
 	}
 
+	mutex_lock(&dir_dentry_p->d_inode->i_mutex);
 	/* open file for reading - this must be done 'by hand', because     */
 	/* standard system calls are now extended by rsbac decision calls.  */
 	file_dentry_p =
 	    rsbac_lookup_one_len(name, dir_dentry_p, strlen(name));
+	mutex_unlock(&dir_dentry_p->d_inode->i_mutex);
 	if (!file_dentry_p || IS_ERR(file_dentry_p)) {
 		rsbac_pr_debug(write, "lookup of %s returned error %li\n",
 			     name, PTR_ERR(file_dentry_p));
@@ -2594,10 +2613,12 @@ int rsbac_write_open(char *name, struct file **file_pi, kdev_t kdev)
 							     (kdev), err);
 						}
 						/* re-init dentry structure */
+						mutex_lock(&dir_dentry_p->d_inode->i_mutex);
 						file_dentry_p =
 						    rsbac_lookup_one_len
 						    (name, dir_dentry_p,
 						     strlen(name));
+						mutex_unlock(&dir_dentry_p->d_inode->i_mutex);
 						if (!file_dentry_p
 						    ||
 						    IS_ERR(file_dentry_p)) {
@@ -6825,11 +6846,13 @@ static int __init rsbac_do_init(void)
 
 		/* lookup filename */
 		if (mnt_p) {
+			mutex_lock(&mnt_p->mnt_sb->s_root->d_inode->i_mutex);
 			dir_dentry =
 			    rsbac_lookup_one_len(RSBAC_AUTH_LOGIN_PATH_DIR,
 						 mnt_p->mnt_sb->s_root,
 						 strlen
 						 (RSBAC_AUTH_LOGIN_PATH_DIR));
+			mutex_unlock(&mnt_p->mnt_sb->s_root->d_inode->i_mutex);
 		}
 		if (!dir_dentry) {
 			err = -RSBAC_ENOTFOUND;
@@ -6850,10 +6873,14 @@ static int __init rsbac_do_init(void)
 			dput(dir_dentry);
 			goto auth_out;
 		}
+
+		mutex_lock(&dir_dentry->d_inode->i_mutex);
 		t_dentry = rsbac_lookup_one_len(RSBAC_AUTH_LOGIN_PATH_FILE,
 						dir_dentry,
 						strlen
 						(RSBAC_AUTH_LOGIN_PATH_FILE));
+		mutex_unlock(&dir_dentry->d_inode->i_mutex);
+
 		if (!t_dentry) {
 			err = -RSBAC_ENOTFOUND;
 			rsbac_printk(KERN_WARNING "rsbac_do_init(): call to rsbac_lookup_one_len for /%s/%s failed\n",
