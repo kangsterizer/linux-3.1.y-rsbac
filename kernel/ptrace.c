@@ -905,11 +905,16 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, unsigned long, addr,
 		goto out;
 	}
 
+	child = ptrace_get_task_struct(pid);
+	if (IS_ERR(child)) {
+		ret = PTR_ERR(child);
+		goto out;
+	}
+
 #ifdef CONFIG_RSBAC
 	if (request != PTRACE_DETACH) {
 		rsbac_pr_debug(aef, "[sys_ptrace] calling ADF\n");
-		rcu_read_lock();
-		rsbac_target_id.process = find_pid_ns(pid, &init_pid_ns);
+		rsbac_target_id.process = task_pid(child);
 		rsbac_attribute_value.trace_request = request;
 		if (!rsbac_adf_request(R_TRACE,
 					task_pid(current),
@@ -919,18 +924,10 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, unsigned long, addr,
 					rsbac_attribute_value))
 		{
 			ret = -EPERM;
-			rcu_read_unlock();
-			goto out;
+			goto out_put_task_struct;
 		}
-		rcu_read_unlock();
 	}
 #endif
-
-	child = ptrace_get_task_struct(pid);
-	if (IS_ERR(child)) {
-		ret = PTR_ERR(child);
-		goto out;
-	}
 
 	if (request == PTRACE_ATTACH || request == PTRACE_SEIZE) {
 		ret = ptrace_attach(child, request, data);
