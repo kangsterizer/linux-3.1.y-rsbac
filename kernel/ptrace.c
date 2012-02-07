@@ -338,31 +338,10 @@ static int ptrace_traceme(void)
 {
 	int ret = -EPERM;
 
-#ifdef CONFIG_RSBAC
-        union rsbac_target_id_t rsbac_target_id;
-        union rsbac_attribute_value_t rsbac_attribute_value;
-#endif
-
 	write_lock_irq(&tasklist_lock);
 	/* Are we already being traced? */
 	if (!current->ptrace) {
 		ret = security_ptrace_traceme(current->parent);
-
-#ifdef CONFIG_RSBAC
-		if (!ret) {
-			rsbac_pr_debug(aef, "[sys_ptrace] calling ADF\n");
-			rsbac_target_id.process = task_pid(current);
-			rsbac_attribute_value.trace_request = PTRACE_TRACEME;
-			if (!rsbac_adf_request(R_TRACE,
-					task_pid(current),
-					T_PROCESS,
-					rsbac_target_id,
-					A_trace_request,
-					rsbac_attribute_value)) {
-				ret = -EPERM;
-			}
-		}
-#endif
 
 		/*
 		 * Check PF_EXITING to ensure ->real_parent has not passed
@@ -899,6 +878,20 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, unsigned long, addr,
 #endif
 
 	if (request == PTRACE_TRACEME) {
+#ifdef CONFIG_RSBAC
+		rsbac_pr_debug(aef, "[sys_ptrace] calling ADF\n");
+		rsbac_target_id.process = task_pid(current);
+		rsbac_attribute_value.trace_request = PTRACE_TRACEME;
+		if (!rsbac_adf_request(R_TRACE,
+				task_pid(current),
+				T_PROCESS,
+				rsbac_target_id,
+				A_trace_request,
+				rsbac_attribute_value)) {
+			return -EPERM;
+		}
+#endif
+
 		ret = ptrace_traceme();
 		if (!ret)
 			arch_ptrace_attach(current);
@@ -921,8 +914,7 @@ SYSCALL_DEFINE4(ptrace, long, request, long, pid, unsigned long, addr,
 					T_PROCESS,
 					rsbac_target_id,
 					A_trace_request,
-					rsbac_attribute_value))
-		{
+					rsbac_attribute_value)) {
 			ret = -EPERM;
 			goto out_put_task_struct;
 		}
